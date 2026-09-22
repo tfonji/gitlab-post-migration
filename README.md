@@ -40,10 +40,13 @@ build → discover → plan (parallel, one job per task) → apply (manual gate,
   the projects).
 - Every `plan:*` job reads `projects.json`, diffs live state vs.
   `configs/desired-state.yaml`, and writes `plan-<task>.json`. Nothing is
-  changed yet.
+  changed yet. The job log itself prints a table -- one row per target with
+  its kind/path/status/description -- plus a stats summary line, so you can
+  review exactly what a task found without opening any artifact.
 - Every `apply:*` job is `when: manual` and only acts on the diffs from its
   matching `plan:*` job's artifact -- what you approve in the GitLab UI is
-  exactly what runs.
+  exactly what runs. Its job log prints the same kind of table, showing what
+  was actually done to each target.
 - `report` merges every `result-*.json` (or `plan-*.json` if nothing was
   applied) into one `report.json` + `report.html` pipeline artifact, with an
   overall stats summary and a per-task breakdown.

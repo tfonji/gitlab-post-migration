@@ -174,7 +174,7 @@ func runPlanOrApply(args []string, mode report.Mode) error {
 			return err
 		}
 		run := report.TaskRun{Task: *taskName, Mode: report.ModePlan, Diffs: diffs}
-		fmt.Fprintf(os.Stderr, "%s: planned %d target(s)\n", *taskName, len(diffs))
+		report.BuildTaskReport(run).WriteTable(os.Stderr)
 		return writeJSON(*out, run)
 	}
 
@@ -190,7 +190,7 @@ func runPlanOrApply(args []string, mode report.Mode) error {
 		return err
 	}
 	run := report.TaskRun{Task: *taskName, Mode: report.ModeApply, Results: results}
-	fmt.Fprintf(os.Stderr, "%s: applied %d target(s)\n", *taskName, len(results))
+	report.BuildTaskReport(run).WriteTable(os.Stderr)
 	return writeJSON(*out, run)
 }
 
@@ -230,8 +230,7 @@ func runReport(args []string) error {
 	if err := r.WriteHTML(*htmlOut); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "report: total=%d unchanged=%d drifted=%d applied=%d failed=%d skipped=%d\n",
-		r.Stats.Total, r.Stats.Unchanged, r.Stats.Drifted, r.Stats.Applied, r.Stats.Failed, r.Stats.Skipped)
+	fmt.Fprintf(os.Stderr, "report: %s\n", r.Stats)
 	if r.Stats.Failed > 0 {
 		return fmt.Errorf("%d target(s) failed", r.Stats.Failed)
 	}

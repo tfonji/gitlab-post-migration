@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"os"
+	"text/tabwriter"
 	"time"
 
 	"github.com/tfonji/gitlab-post-migration/internal/diff"
@@ -57,6 +59,22 @@ func (s *Stats) add(status diff.Status) {
 	}
 }
 
+func (s *Stats) merge(other Stats) {
+	s.Total += other.Total
+	s.Unchanged += other.Unchanged
+	s.Drifted += other.Drifted
+	s.Applied += other.Applied
+	s.Failed += other.Failed
+	s.Skipped += other.Skipped
+}
+
+// String renders a one-line stats summary, e.g.
+// "total=20 unchanged=15 drifted=4 applied=0 failed=1 skipped=0".
+func (s Stats) String() string {
+	return fmt.Sprintf("total=%d unchanged=%d drifted=%d applied=%d failed=%d skipped=%d",
+		s.Total, s.Unchanged, s.Drifted, s.Applied, s.Failed, s.Skipped)
+}
+
 type Entry struct {
 	TargetKind  diff.TargetKind `json:"target_kind"`
 	TargetPath  string          `json:"target_path"`
@@ -79,30 +97,61 @@ type Report struct {
 	Tasks       []TaskReport `json:"tasks"`
 }
 
+// BuildTaskReport converts one TaskRun into a TaskReport (stats + entries).
+// It's the same conversion Merge does per task, exposed separately so the
+// CLI can print a table right after plan/apply -- in the job log, not just
+// in the final `report` job's artifact.
+func BuildTaskReport(run TaskRun) TaskReport {
+	tr := TaskReport{Task: run.Task, Mode: run.Mode}
+	if run.Mode == ModePlan {
+		for _, d := range run.Diffs {
+			tr.Stats.add(d.Status)
+			tr.Entries = append(tr.Entries, Entry{
+				TargetKind: d.Target.Kind, TargetPath: d.Target.Path,
+				Status: d.Status, Description: d.Description,
+			})
+		}
+	} else {
+		for _, res := range run.Results {
+			tr.Stats.add(res.Status)
+			tr.Entries = append(tr.Entries, Entry{
+				TargetKind: res.Target.Kind, TargetPath: res.Target.Path,
+				Status: res.Status, Description: res.Description, Error: res.Error,
+			})
+		}
+	}
+	return tr
+}
+
+// WriteTable prints every entry as an aligned table (kind/target/status/
+// description, one row per target) followed by a stats summary line --
+// meant for job-log output, so a run's effect is visible without opening
+// the report artifact.
+func (tr TaskReport) WriteTable(w io.Writer) {
+	fmt.Fprintf(w, "\n%s (%s)\n", tr.Task, tr.Mode)
+	if len(tr.Entries) == 0 {
+		fmt.Fprintln(w, "(no targets)")
+		return
+	}
+	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "KIND\tTARGET\tSTATUS\tDESCRIPTION")
+	for _, e := range tr.Entries {
+		desc := e.Description
+		if e.Error != "" {
+			desc = e.Error
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", e.TargetKind, e.TargetPath, e.Status, desc)
+	}
+	tw.Flush()
+	fmt.Fprintf(w, "\nsummary: %s\n", tr.Stats)
+}
+
 // Merge combines one TaskRun per task into a single Report.
 func Merge(runs []TaskRun) Report {
 	r := Report{GeneratedAt: time.Now().UTC()}
 	for _, run := range runs {
-		tr := TaskReport{Task: run.Task, Mode: run.Mode}
-		if run.Mode == ModePlan {
-			for _, d := range run.Diffs {
-				tr.Stats.add(d.Status)
-				r.Stats.add(d.Status)
-				tr.Entries = append(tr.Entries, Entry{
-					TargetKind: d.Target.Kind, TargetPath: d.Target.Path,
-					Status: d.Status, Description: d.Description,
-				})
-			}
-		} else {
-			for _, res := range run.Results {
-				tr.Stats.add(res.Status)
-				r.Stats.add(res.Status)
-				tr.Entries = append(tr.Entries, Entry{
-					TargetKind: res.Target.Kind, TargetPath: res.Target.Path,
-					Status: res.Status, Description: res.Description, Error: res.Error,
-				})
-			}
-		}
+		tr := BuildTaskReport(run)
+		r.Stats.merge(tr.Stats)
 		r.Tasks = append(r.Tasks, tr)
 	}
 	return r
