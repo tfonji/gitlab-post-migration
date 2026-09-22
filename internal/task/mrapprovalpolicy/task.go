@@ -5,12 +5,18 @@
 // approval settings (allow_author_approval, etc.), which is a different
 // GitLab feature entirely.
 //
-// The query/mutation shapes below were verified against GitLab's own
+// Query/mutation shapes were verified against GitLab's own
 // terraform-provider-gitlab source
 // (resource_gitlab_group_security_policy_attachment.go: securityPolicyProjectAssign,
-// securityPolicyProject), not guessed -- but the scalar type names on the
-// GraphQL variables are best-effort and worth confirming against the
-// target instance's schema before the first real run.
+// securityPolicyProject); the mutation's exact argument scalar types were
+// then further verified against GitLab's Ruby source
+// (ee/app/graphql/mutations/security_policy/assign_security_policy_project.rb):
+// fullPath is the String scalar (not ID -- an earlier version of this task
+// had it as ID, which is a real type-name mismatch a GraphQL server
+// rejects; caught the same class of bug in the complianceframework task's
+// mutations, this one just hadn't been exercised against a live instance
+// yet), and securityPolicyProjectId is the ProjectID scalar (also not the
+// plain ID this task originally used).
 package mrapprovalpolicy
 
 import (
@@ -54,7 +60,7 @@ type currentPolicyProjectResponse struct {
 }
 
 const assignPolicyProjectMutation = `
-mutation($fullPath: ID!, $policyProjectId: ID!) {
+mutation($fullPath: String!, $policyProjectId: ProjectID!) {
   securityPolicyProjectAssign(input: { fullPath: $fullPath, securityPolicyProjectId: $policyProjectId }) {
     errors
   }

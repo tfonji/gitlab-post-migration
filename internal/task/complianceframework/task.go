@@ -6,13 +6,28 @@
 // other frameworks already assigned to a project.
 //
 // Compliance frameworks aren't in the REST API; every call here is
-// GraphQL. Query shapes (and the fact that createComplianceFramework takes
-// namespacePath + params, and project assignment is
-// projectUpdateComplianceFrameworks with a full replacement list) were
-// verified against GitLab's own GraphQL API docs at the time of writing.
-// Scalar type names on GraphQL variables (e.g. ComplianceManagementFrameworkID)
-// are best-effort and worth confirming via introspection against the
-// target instance before the first real run.
+// GraphQL. The read query and the create/update mutations' shapes were
+// verified directly against GitLab's Ruby source
+// (ee/app/graphql/mutations/compliance_management/frameworks/{create,update}.rb
+// and .../types/compliance_management/compliance_framework_input_type.rb) --
+// notably, pipelineConfigurationFullPath lives inside the `params` input
+// object, not as a sibling of it (an earlier version of this task had it as
+// a sibling and GitLab's GraphQL server rejected it: "InputObject
+// 'CreateComplianceFrameworkInput' doesn't accept argument
+// 'pipelineConfigurationFullPath'"). Also note: pipelineConfigurationFullPath
+// is deprecated as of GitLab 17.4 in favor of pipeline execution policies,
+// though it should still function.
+//
+// projectUpdateComplianceFrameworks (project assignment) is now also
+// source-verified, against ee/app/graphql/mutations/projects/update_compliance_frameworks.rb:
+// projectId is the ProjectID scalar (not plain ID -- this was also wrong
+// originally, alongside the pipelineConfigurationFullPath placement bug
+// above), and complianceFrameworkIds takes a list of
+// ComplianceManagementFrameworkID. The one remaining unconfirmed detail is
+// whether that list's elements are non-null ([ComplianceManagementFrameworkID!]!
+// vs [ComplianceManagementFrameworkID]!) -- the Ruby source's `argument`
+// declaration didn't make this unambiguous from a doc summary alone. If
+// this mutation ever fails with a list-nullability complaint, that's why.
 package complianceframework
 
 import (
@@ -246,8 +261,12 @@ const createFrameworkMutation = `
 mutation($namespacePath: ID!, $name: String!, $description: String!, $color: String!, $pipelineConfigurationFullPath: String) {
   createComplianceFramework(input: {
     namespacePath: $namespacePath,
-    params: { name: $name, description: $description, color: $color },
-    pipelineConfigurationFullPath: $pipelineConfigurationFullPath
+    params: {
+      name: $name,
+      description: $description,
+      color: $color,
+      pipelineConfigurationFullPath: $pipelineConfigurationFullPath
+    }
   }) {
     framework { id }
     errors
@@ -288,8 +307,12 @@ const updateFrameworkMutation = `
 mutation($id: ComplianceManagementFrameworkID!, $name: String!, $description: String!, $color: String!, $pipelineConfigurationFullPath: String) {
   updateComplianceFramework(input: {
     id: $id,
-    params: { name: $name, description: $description, color: $color },
-    pipelineConfigurationFullPath: $pipelineConfigurationFullPath
+    params: {
+      name: $name,
+      description: $description,
+      color: $color,
+      pipelineConfigurationFullPath: $pipelineConfigurationFullPath
+    }
   }) {
     framework { id }
     errors
@@ -337,7 +360,7 @@ func (t *Task) lookupFrameworkID(ctx context.Context, groupFullPath, name string
 }
 
 const assignFrameworksMutation = `
-mutation($projectId: ID!, $frameworkIds: [ComplianceManagementFrameworkID!]!) {
+mutation($projectId: ProjectID!, $frameworkIds: [ComplianceManagementFrameworkID!]!) {
   projectUpdateComplianceFrameworks(input: {
     projectId: $projectId,
     complianceFrameworkIds: $frameworkIds

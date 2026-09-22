@@ -76,12 +76,16 @@ export GITLAB_TOKEN=...
 
 - `group-mr-approval-policy` and `group-compliance-framework` are entirely
   GraphQL (neither security policy project linkage nor compliance
-  frameworks are in the REST API). Query/mutation shapes were verified
-  against GitLab's own terraform-provider-gitlab source and GraphQL API
-  docs, not guessed -- but the scalar type names on GraphQL variables (e.g.
-  `ComplianceManagementFrameworkID`) are best-effort. Confirm via
-  introspection against the target instance's GraphQL schema before relying
-  on either task.
+  frameworks are in the REST API). A real run caught two wrong scalar types
+  (`pipelineConfigurationFullPath` placed as a sibling of `params` instead
+  of inside it; `ID` used where the schema wants the custom `ProjectID`/
+  `ComplianceManagementFrameworkID` scalars) -- both mutations, plus
+  `group-mr-approval-policy`'s `securityPolicyProjectAssign`, are now
+  verified directly against GitLab's Ruby source (see each task's package
+  doc comment for the exact file paths), not just docs summaries. The one
+  remaining unconfirmed detail is `complianceFrameworkIds`' list-element
+  nullability on `projectUpdateComplianceFrameworks` (project assignment) --
+  that mutation hasn't been exercised against a live instance yet.
 - `configs/desired-state.yaml` ships with real values you provided (security
   policy project path, compliance framework name/color/description/pipeline
   config) -- double check them before a real run, particularly the
