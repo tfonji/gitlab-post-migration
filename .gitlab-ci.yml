@@ -1,0 +1,120 @@
+stages:
+  - build
+  - discover
+  - plan
+  - apply
+  - report
+
+variables:
+  GROUP_ID:
+    description: "Top-level group ID to scan (recurses subgroups). Leave blank if using PROJECT_IDS instead."
+    value: ""
+  PROJECT_IDS:
+    description: "Comma-separated explicit project IDs. Combinable with GROUP_ID."
+    value: ""
+  CONFIG_FILE:
+    value: "configs/desired-state.yaml"
+
+default:
+  image: golang:1.24
+
+build:
+  stage: build
+  script:
+    - go build -o bin/gitlab-post-migration ./cmd/gitlab-post-migration
+  artifacts:
+    paths: [bin/]
+    expire_in: 1 day
+
+discover:
+  stage: discover
+  needs: ["build"]
+  script:
+    - ./bin/gitlab-post-migration discover --group="$GROUP_ID" --projects="$PROJECT_IDS" --out=projects.json
+  artifacts:
+    paths: [projects.json]
+    expire_in: 1 day
+
+.plan: &plan
+  stage: plan
+  needs: ["build", "discover"]
+  script:
+    - ./bin/gitlab-post-migration plan --task="$TASK" --scope=projects.json --config="$CONFIG_FILE" --out="plan-$TASK.json"
+  artifacts:
+    paths: ["plan-$TASK.json"]
+    expire_in: 1 week
+
+.apply: &apply
+  stage: apply
+  when: manual
+  script:
+    - ./bin/gitlab-post-migration apply --task="$TASK" --plan="plan-$TASK.json" --config="$CONFIG_FILE" --out="result-$TASK.json"
+  artifacts:
+    paths: ["result-$TASK.json"]
+    expire_in: 1 month
+
+plan:group-mr-approval-policy:
+  <<: *plan
+  variables: { TASK: "group-mr-approval-policy" }
+
+apply:group-mr-approval-policy:
+  <<: *apply
+  needs: ["build", "plan:group-mr-approval-policy"]
+  variables: { TASK: "group-mr-approval-policy" }
+
+plan:group-compliance-framework:
+  <<: *plan
+  variables: { TASK: "group-compliance-framework" }
+
+apply:group-compliance-framework:
+  <<: *apply
+  needs: ["build", "plan:group-compliance-framework"]
+  variables: { TASK: "group-compliance-framework" }
+
+plan:group-protected-environment:
+  <<: *plan
+  variables: { TASK: "group-protected-environment" }
+
+apply:group-protected-environment:
+  <<: *apply
+  needs: ["build", "plan:group-protected-environment"]
+  variables: { TASK: "group-protected-environment" }
+
+plan:group-default-branch-setting:
+  <<: *plan
+  variables: { TASK: "group-default-branch-setting" }
+
+apply:group-default-branch-setting:
+  <<: *apply
+  needs: ["build", "plan:group-default-branch-setting"]
+  variables: { TASK: "group-default-branch-setting" }
+
+plan:project-default-branch-rename:
+  <<: *plan
+  variables: { TASK: "project-default-branch-rename" }
+
+apply:project-default-branch-rename:
+  <<: *apply
+  needs: ["build", "plan:project-default-branch-rename"]
+  variables: { TASK: "project-default-branch-rename" }
+
+report:
+  stage: report
+  needs:
+    - "discover"
+    - { job: "plan:group-mr-approval-policy", optional: true }
+    - { job: "plan:group-compliance-framework", optional: true }
+    - { job: "plan:group-protected-environment", optional: true }
+    - { job: "plan:group-default-branch-setting", optional: true }
+    - { job: "plan:project-default-branch-rename", optional: true }
+    - { job: "apply:group-mr-approval-policy", optional: true }
+    - { job: "apply:group-compliance-framework", optional: true }
+    - { job: "apply:group-protected-environment", optional: true }
+    - { job: "apply:group-default-branch-setting", optional: true }
+    - { job: "apply:project-default-branch-rename", optional: true }
+  script:
+    - ./bin/gitlab-post-migration report --in="result-*.json" --json-out=report.json --html-out=report.html
+  artifacts:
+    when: always
+    paths: [report.json, report.html]
+    expire_in: 1 month

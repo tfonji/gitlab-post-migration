@@ -1,0 +1,29 @@
+# Desired-state baseline applied uniformly to every top-level group/project
+# resolved in a pipeline run. Edit and review like code -- this file *is*
+# the policy.
+
+mr_policy:
+  # Security policy project linked to each top-level group's "merge request
+  # approval policy" (GitLab Security & Compliance > Policies), not the
+  # boolean group MR-approval settings.
+  security_policy_project_path: "dso-security-policy/mr-policy-1-approver-security-policy-project"
+
+compliance_framework:
+  # Created (if missing) or reconciled (if drifted) at each top-level group,
+  # then assigned to every project in that group.
+  name: "security-compliant"
+  color: "#9400d3"
+  description: "security compliance framework"
+  pipeline_configuration_full_path: "compliance-framework-appsec.gitlab-ci.yml@compliance-framework/compliance-framework-appsec"
+
+protected_environment:
+  environment_name: production
+  deploy_access_level: maintainer
+  approver_access_level: maintainer
+  required_approval_count: 1
+
+group_default_branch:
+  branch_name: master
+
+default_branch_rename:
+  branch_name: master
