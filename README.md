@@ -86,6 +86,18 @@ export GITLAB_TOKEN=...
   remaining unconfirmed detail is `complianceFrameworkIds`' list-element
   nullability on `projectUpdateComplianceFrameworks` (project assignment) --
   that mutation hasn't been exercised against a live instance yet.
+- Two bugs found and fixed against a real GitLab Dedicated instance, both
+  worth knowing about if you're extending these tasks or writing new ones:
+  - Every `isNotFound(err)` helper originally checked for
+    `*gitlab.ErrorResponse` with status 404, which go-gitlab's REST client
+    never returns for a 404 -- `CheckResponse` converts every HTTP 404 to
+    the sentinel `gitlab.ErrNotFound` instead. The correct check is
+    `errors.Is(err, gitlab.ErrNotFound)`.
+  - `group-protected-environment`'s `ProtectGroupEnvironmentOptions.RequiredApprovalCount`
+    (the top-level field) is rejected by the API as deprecated
+    ("Parameter 'required_approval_count' is deprecated and shouldn't be
+    used", https://gitlab.com/groups/gitlab-org/-/epics/9662) -- the
+    required count belongs solely on each `ApprovalRules` entry now.
 - `configs/desired-state.yaml` ships with real values you provided (security
   policy project path, compliance framework name/color/description/pipeline
   config) -- double check them before a real run, particularly the

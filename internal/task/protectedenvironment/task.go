@@ -88,12 +88,18 @@ func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config)
 
 		// ProtectGroupEnvironment is also the update path: protecting an
 		// already-protected environment with new settings replaces them.
+		//
+		// The top-level RequiredApprovalCount field is deprecated by GitLab
+		// (a real apply run hit: "422 Parameter 'required_approval_count' is
+		// deprecated and shouldn't be used", linking
+		// https://gitlab.com/groups/gitlab-org/-/epics/9662) -- the required
+		// count now belongs solely on each ApprovalRules entry, which this
+		// already sets.
 		_, _, err := t.Client.REST.GroupProtectedEnvironments.ProtectGroupEnvironment(d.Target.ID, &gitlab.ProtectGroupEnvironmentOptions{
 			Name: gitlab.Ptr(envName),
 			DeployAccessLevels: &[]*gitlab.GroupEnvironmentAccessOptions{
 				{AccessLevel: gitlab.Ptr(accessLevel)},
 			},
-			RequiredApprovalCount: gitlab.Ptr(requiredApprovals),
 			ApprovalRules: &[]*gitlab.GroupEnvironmentApprovalRuleOptions{
 				{AccessLevel: gitlab.Ptr(accessLevel), RequiredApprovalCount: gitlab.Ptr(requiredApprovals)},
 			},
@@ -108,10 +114,11 @@ func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config)
 	return results, nil
 }
 
+// matches deliberately ignores current.RequiredApprovalCount (the
+// deprecated top-level field, see the comment in Apply) and checks only
+// each approval rule's own RequiredApprovalCount, which is what this task
+// actually writes.
 func matches(current *gitlab.GroupProtectedEnvironment, wantAccess gitlab.AccessLevelValue, wantApprovals int64) bool {
-	if current.RequiredApprovalCount != wantApprovals {
-		return false
-	}
 	deployOK := false
 	for _, lvl := range current.DeployAccessLevels {
 		if lvl.AccessLevel == wantAccess {
