@@ -53,7 +53,7 @@ func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Conf
 				})
 				continue
 			}
-			diffs = append(diffs, diff.Diff{Target: target, Status: diff.StatusFailed, Description: err.Error()})
+			diffs = append(diffs, diff.Diff{Target: target, Status: diff.StatusFailed, Description: fmt.Sprintf("checking environment %q: %v", envName, err)})
 			continue
 		}
 
@@ -99,7 +99,7 @@ func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config)
 			},
 		}, gitlab.WithContext(ctx))
 		if err != nil {
-			results = append(results, diff.Result{Target: d.Target, Status: diff.StatusFailed, Error: err.Error()})
+			results = append(results, diff.Result{Target: d.Target, Status: diff.StatusFailed, Error: fmt.Sprintf("protecting environment %q: %v", envName, err)})
 			continue
 		}
 
@@ -161,7 +161,12 @@ func accessLevelFromString(level string) (gitlab.AccessLevelValue, error) {
 	}
 }
 
+// isNotFound checks for go-gitlab's sentinel gitlab.ErrNotFound, which
+// CheckResponse (gitlab.go) returns for EVERY HTTP 404 -- never a
+// *gitlab.ErrorResponse with status 404. An earlier version of this
+// function checked for *ErrorResponse instead, which never matched, so
+// every "not protected yet" 404 (the normal, expected state before this
+// task has ever run) was misreported as a hard failure instead of drift.
 func isNotFound(err error) bool {
-	var errResp *gitlab.ErrorResponse
-	return errors.As(err, &errResp) && errResp.HasStatusCode(404)
+	return errors.Is(err, gitlab.ErrNotFound)
 }
