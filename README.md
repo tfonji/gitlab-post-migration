@@ -26,7 +26,7 @@ One task per pipeline job, each independently plan-then-apply:
 | `group-compliance-framework` | top-level group + its projects | creates/reconciles a compliance framework (name/color/description/pipeline config) at the group, then assigns it to every project in the group |
 | `group-protected-environment` | top-level group | protects the `production` environment tier, deploy + approval restricted to Maintainer |
 | `group-default-branch-setting` | top-level group | sets the default branch name for *new* projects created in the group going forward |
-| `project-default-branch-rename` | project | if the project's default branch isn't `master`, creates `master` from the current default and switches the project's default branch pointer to it |
+| `project-default-branch-rename` | project | if the project's default branch isn't `master`, creates `master` from the current default, protects it (push/merge restricted to Maintainer), and switches the project's default branch pointer to it -- also fixes protection alone if `master` is already default but unprotected/misconfigured |
 
 ## Pipeline flow
 
@@ -47,6 +47,11 @@ build → discover → plan (parallel, one job per task) → apply (manual gate,
   matching `plan:*` job's artifact -- what you approve in the GitLab UI is
   exactly what runs. Its job log prints the same kind of table, showing what
   was actually done to each target.
+- `apply:group-mr-approval-policy` deliberately runs last: it `needs` all
+  four other apply jobs, so it isn't triggerable until they've all
+  succeeded. If any of them isn't run in a given pipeline, this job is
+  auto-skipped rather than becoming available on its own (GitLab treats
+  `needs` on a manual job as auto-skip-if-not-triggered since 13.12).
 - `report` merges every `result-*.json` (or `plan-*.json` if nothing was
   applied) into one `report.json` + `report.html` pipeline artifact, with an
   overall stats summary and a per-task breakdown.
@@ -98,6 +103,15 @@ export GITLAB_TOKEN=...
     ("Parameter 'required_approval_count' is deprecated and shouldn't be
     used", https://gitlab.com/groups/gitlab-org/-/epics/9662) -- the
     required count belongs solely on each `ApprovalRules` entry now.
+  - `project-default-branch-rename`'s branch-creation check used to only
+    ask "does `master` already exist?" -- if a project had a stale,
+    unrelated `master` branch sitting around from long before migration,
+    the task silently reused it (wrong history) and mislabeled the result
+    "created" even though nothing was created. It now compares the
+    existing branch's tip commit against the current default's tip: an
+    exact match is reused safely, anything else surfaces as a `failed`
+    plan entry naming both tips rather than switching default to a
+    possibly-stale branch.
 - `configs/desired-state.yaml` ships with real values you provided (security
   policy project path, compliance framework name/color/description/pipeline
   config) -- double check them before a real run, particularly the

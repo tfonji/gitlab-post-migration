@@ -15,31 +15,23 @@ variables:
   CONFIG_FILE:
     value: "configs/desired-state.yaml"
 
-default:
-  image: golang:1.24
-
-build:
-  stage: build
-  script:
-    - go build -o bin/gitlab-post-migration ./cmd/gitlab-post-migration
-  artifacts:
-    paths: [bin/]
-    expire_in: 1 day
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH =~ /^feature\/.*$/
 
 discover:
   stage: discover
-  needs: ["build"]
   script:
-    - ./bin/gitlab-post-migration discover --group="$GROUP_ID" --projects="$PROJECT_IDS" --out=projects.json
+    - ./bin/post-migration-linux-amd64 discover --group="$GROUP_ID" --projects="$PROJECT_IDS" --out=projects.json
   artifacts:
     paths: [projects.json]
     expire_in: 1 day
 
 .plan: &plan
   stage: plan
-  needs: ["build", "discover"]
+  needs: ["discover"]
   script:
-    - ./bin/gitlab-post-migration plan --task="$TASK" --scope=projects.json --config="$CONFIG_FILE" --out="plan-$TASK.json"
+    - ./bin/post-migration-linux-amd64 plan --task="$TASK" --scope=projects.json --config="$CONFIG_FILE" --out="plan-$TASK.json"
   artifacts:
     paths: ["plan-$TASK.json"]
     expire_in: 1 week
@@ -48,7 +40,7 @@ discover:
   stage: apply
   when: manual
   script:
-    - ./bin/gitlab-post-migration apply --task="$TASK" --plan="plan-$TASK.json" --config="$CONFIG_FILE" --out="result-$TASK.json"
+    - ./bin/post-migration-linux-amd64 apply --task="$TASK" --plan="plan-$TASK.json" --config="$CONFIG_FILE" --out="result-$TASK.json"
   artifacts:
     paths: ["result-$TASK.json"]
     expire_in: 1 month
@@ -57,9 +49,19 @@ plan:group-mr-approval-policy:
   <<: *plan
   variables: { TASK: "group-mr-approval-policy" }
 
+# Must run after every other apply job -- GitLab treats `needs` on a manual
+# job as auto-skip-if-not-triggered (since 13.12), so this job only becomes
+# triggerable once all four of these have been triggered and succeeded; if
+# any of them is never run in a given pipeline, this job is auto-skipped
+# rather than becoming available standalone.
 apply:group-mr-approval-policy:
   <<: *apply
-  needs: ["build", "plan:group-mr-approval-policy"]
+  needs:
+    - "plan:group-mr-approval-policy"
+    - "apply:group-compliance-framework"
+    - "apply:group-protected-environment"
+    - "apply:group-default-branch-setting"
+    - "apply:project-default-branch-rename"
   variables: { TASK: "group-mr-approval-policy" }
 
 plan:group-compliance-framework:
@@ -68,7 +70,7 @@ plan:group-compliance-framework:
 
 apply:group-compliance-framework:
   <<: *apply
-  needs: ["build", "plan:group-compliance-framework"]
+  needs: [ "plan:group-compliance-framework"]
   variables: { TASK: "group-compliance-framework" }
 
 plan:group-protected-environment:
@@ -77,7 +79,7 @@ plan:group-protected-environment:
 
 apply:group-protected-environment:
   <<: *apply
-  needs: ["build", "plan:group-protected-environment"]
+  needs: [ "plan:group-protected-environment"]
   variables: { TASK: "group-protected-environment" }
 
 plan:group-default-branch-setting:
@@ -86,7 +88,7 @@ plan:group-default-branch-setting:
 
 apply:group-default-branch-setting:
   <<: *apply
-  needs: ["build", "plan:group-default-branch-setting"]
+  needs: [ "plan:group-default-branch-setting"]
   variables: { TASK: "group-default-branch-setting" }
 
 plan:project-default-branch-rename:
@@ -95,7 +97,7 @@ plan:project-default-branch-rename:
 
 apply:project-default-branch-rename:
   <<: *apply
-  needs: ["build", "plan:project-default-branch-rename"]
+  needs: [ "plan:project-default-branch-rename"]
   variables: { TASK: "project-default-branch-rename" }
 
 report:
@@ -113,7 +115,7 @@ report:
     - { job: "apply:group-default-branch-setting", optional: true }
     - { job: "apply:project-default-branch-rename", optional: true }
   script:
-    - ./bin/gitlab-post-migration report --in="result-*.json" --json-out=report.json --html-out=report.html
+    - ./bin/post-migration/post-migration-linux-amd64 report --in="result-*.json" --json-out=report.json --html-out=report.html
   artifacts:
     when: always
     paths: [report.json, report.html]

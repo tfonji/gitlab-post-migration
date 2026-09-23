@@ -57,10 +57,12 @@ type GroupDefaultBranch struct {
 
 // DefaultBranchRename is the desired default branch name for EXISTING
 // migrated projects; the task creates this branch from the project's
-// current default (if missing) and switches the project's default branch
-// pointer to it.
+// current default (if missing), protects it, and switches the project's
+// default branch pointer to it.
 type DefaultBranchRename struct {
-	BranchName string `yaml:"branch_name"` // "master"
+	BranchName              string `yaml:"branch_name"`                // "master"
+	ProtectPushAccessLevel  string `yaml:"protect_push_access_level"`  // "maintainer"
+	ProtectMergeAccessLevel string `yaml:"protect_merge_access_level"` // "maintainer"
 }
 
 func Load(path string) (*Config, error) {

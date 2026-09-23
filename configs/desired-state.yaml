@@ -27,3 +27,8 @@ group_default_branch:
 
 default_branch_rename:
   branch_name: master
+  # Applied when the branch is created/switched to default: no one but
+  # Maintainers can push or merge (no direct push for Developers, no
+  # force-push for anyone).
+  protect_push_access_level: maintainer
+  protect_merge_access_level: maintainer
