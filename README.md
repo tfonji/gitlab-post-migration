@@ -119,10 +119,3 @@ export GITLAB_TOKEN=...
 - No concurrency/rate-limit tuning yet; each task processes projects
   sequentially. Fine at the tens-to-hundreds-of-projects scale discussed,
   worth revisiting if that grows.
-
-## Planned enhancements
-
-- A persisted report, updated on every `plan`/`apply` run, tracking
-  cumulative manual effort saved vs. doing this by hand in the GitLab UI --
-  to help make the case for using this tool. Not built yet; deferred
-  on purpose (2026-09-19).
