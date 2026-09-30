@@ -7,10 +7,10 @@ stages:
 
 variables:
   GROUP_ID:
-    description: "Top-level group ID to scan (recurses subgroups). Leave blank if using PROJECT_IDS instead."
+    description: "Comma-separated group IDs to scan, e.g. 123,456 (each recurses subgroups). Leave blank if using PROJECT_IDS instead."
     value: ""
   PROJECT_IDS:
-    description: "Comma-separated explicit project IDs. Combinable with GROUP_ID."
+    description: "Comma-separated explicit project IDs. Combinable with GROUP_ID; duplicates are included once."
     value: ""
   CONFIG_FILE:
     value: "configs/desired-state.yaml"

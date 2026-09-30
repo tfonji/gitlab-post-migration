@@ -2,7 +2,7 @@
 
 Post-migration reconciler for GitLab projects that have already been moved
 from Azure DevOps onto the GitLab Dedicated instance. It does **not** copy
-settings between GitLab instances -- given a group or a list of project IDs,
+settings between GitLab instances -- given one or more groups and/or a list of project IDs,
 it applies a fixed, versioned baseline of settings across every one of them.
 
 Runs entirely as GitLab CI pipeline jobs (see [.gitlab-ci.yml](.gitlab-ci.yml)).
@@ -34,7 +34,8 @@ One task per pipeline job, each independently plan-then-apply:
 build → discover → plan (parallel, one job per task) → apply (manual gate, one job per task) → report
 ```
 
-- `discover` resolves `GROUP_ID` and/or `PROJECT_IDS` into `projects.json`
+- `discover` resolves `GROUP_ID` (comma-separated, e.g. `123,456`) and/or
+  `PROJECT_IDS` into `projects.json`
   (every project found, plus the deduplicated top-level groups they belong
   to -- group-level tasks iterate those groups, project-level tasks iterate
   the projects).
@@ -84,7 +85,7 @@ build → discover → plan (parallel, one job per task) → apply (manual gate,
 go build -o bin/gitlab-post-migration ./cmd/gitlab-post-migration
 export GITLAB_TOKEN=...
 
-./bin/gitlab-post-migration discover --group=12345 --out=projects.json
+./bin/gitlab-post-migration discover --group=12345,67890 --out=projects.json
 ./bin/gitlab-post-migration list-tasks
 ./bin/gitlab-post-migration plan --task=project-default-branch-rename --scope=projects.json
 ./bin/gitlab-post-migration apply --task=project-default-branch-rename --plan=plan-project-default-branch-rename.json

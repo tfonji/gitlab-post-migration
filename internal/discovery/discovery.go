@@ -9,26 +9,34 @@ import (
 	"github.com/tfonji/gitlab-post-migration/internal/gitlabclient"
 )
 
-// Resolve turns pipeline input (a group ID and/or explicit project IDs) into
+// Resolve turns pipeline input (group IDs and/or explicit project IDs) into
 // a Scope: every target project, plus the deduplicated top-level groups they
-// belong to. All projects under groupID (recursing subgroups) are assumed
+// belong to. All projects under each group (recursing subgroups) are assumed
 // migrated and in scope — see design discussion, no marker/topic filtering
-// for v1, archived projects are skipped.
-func Resolve(ctx context.Context, c *gitlabclient.Client, groupID *int64, projectIDs []int64) (Scope, error) {
+// for v1, archived projects are skipped. A project reachable more than once
+// (a group and one of its subgroups both listed, or a project ID inside a
+// listed group) is included once.
+func Resolve(ctx context.Context, c *gitlabclient.Client, groupIDs []int64, projectIDs []int64) (Scope, error) {
 	var projects []*gitlab.Project
+	seen := map[int64]bool{}
 
-	if groupID != nil {
+	for _, groupID := range groupIDs {
 		opts := &gitlab.ListGroupProjectsOptions{
 			ListOptions:      gitlab.ListOptions{PerPage: 100},
 			IncludeSubGroups: gitlab.Ptr(true),
 			Archived:         gitlab.Ptr(false),
 		}
 		for {
-			page, resp, err := c.REST.Groups.ListGroupProjects(*groupID, opts, gitlab.WithContext(ctx))
+			page, resp, err := c.REST.Groups.ListGroupProjects(groupID, opts, gitlab.WithContext(ctx))
 			if err != nil {
-				return Scope{}, fmt.Errorf("listing projects for group %d: %w", *groupID, err)
+				return Scope{}, fmt.Errorf("listing projects for group %d: %w", groupID, err)
 			}
-			projects = append(projects, page...)
+			for _, p := range page {
+				if !seen[p.ID] {
+					seen[p.ID] = true
+					projects = append(projects, p)
+				}
+			}
 			if resp.NextPage == 0 {
 				break
 			}
@@ -36,10 +44,6 @@ func Resolve(ctx context.Context, c *gitlabclient.Client, groupID *int64, projec
 		}
 	}
 
-	seen := make(map[int64]bool, len(projects))
-	for _, p := range projects {
-		seen[p.ID] = true
-	}
 	for _, id := range projectIDs {
 		if seen[id] {
 			continue

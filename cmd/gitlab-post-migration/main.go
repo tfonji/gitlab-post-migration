@@ -122,7 +122,7 @@ func runDiscover(args []string) error {
 	fs := flag.NewFlagSet("discover", flag.ExitOnError)
 	gitlabURL := fs.String("gitlab-url", envOr("CI_SERVER_URL", "https://gitlab.com"), "GitLab base URL")
 	token := fs.String("token", os.Getenv("GITLAB_TOKEN"), "GitLab API token")
-	groupIDFlag := fs.String("group", os.Getenv("GROUP_ID"), "top-level group ID to scan (recurses subgroups)")
+	groupIDFlag := fs.String("group", os.Getenv("GROUP_ID"), "comma-separated group IDs to scan (each recurses subgroups)")
 	projectIDsFlag := fs.String("projects", os.Getenv("PROJECT_IDS"), "comma-separated explicit project IDs")
 	out := fs.String("out", "projects.json", "output scope file")
 	if err := fs.Parse(args); err != nil {
@@ -135,24 +135,20 @@ func runDiscover(args []string) error {
 		return err
 	}
 
-	var groupID *int64
-	if strings.TrimSpace(*groupIDFlag) != "" {
-		id, err := strconv.ParseInt(strings.TrimSpace(*groupIDFlag), 10, 64)
-		if err != nil {
-			return fmt.Errorf("invalid --group %q: %w", *groupIDFlag, err)
-		}
-		groupID = &id
+	groupIDs, err := parseIntList(*groupIDFlag)
+	if err != nil {
+		return fmt.Errorf("invalid --group %q: %w", *groupIDFlag, err)
 	}
-
 	projectIDs, err := parseIntList(*projectIDsFlag)
 	if err != nil {
 		return fmt.Errorf("invalid --projects: %w", err)
 	}
-	if groupID == nil && len(projectIDs) == 0 {
+	if len(groupIDs) == 0 && len(projectIDs) == 0 {
 		return fmt.Errorf("at least one of --group or --projects must be set")
 	}
+	slog.Info("discovering", "groups", groupIDs, "projects", projectIDs)
 
-	scope, err := discovery.Resolve(ctx, c, groupID, projectIDs)
+	scope, err := discovery.Resolve(ctx, c, groupIDs, projectIDs)
 	if err != nil {
 		return err
 	}
