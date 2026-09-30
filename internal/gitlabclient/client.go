@@ -24,7 +24,10 @@ type Client struct {
 }
 
 func New(baseURL, token string) (*Client, error) {
-	rest, err := gitlab.NewClient(token, gitlab.WithBaseURL(baseURL))
+	// Both the REST and GraphQL clients go through loggingTransport, so every
+	// API call made by any task shows up in the job log the same way.
+	httpClient := &http.Client{Transport: &loggingTransport{next: http.DefaultTransport}}
+	rest, err := gitlab.NewClient(token, gitlab.WithBaseURL(baseURL), gitlab.WithHTTPClient(httpClient))
 	if err != nil {
 		return nil, fmt.Errorf("creating gitlab REST client: %w", err)
 	}
@@ -32,7 +35,7 @@ func New(baseURL, token string) (*Client, error) {
 		REST:       rest,
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		token:      token,
-		httpClient: http.DefaultClient,
+		httpClient: httpClient,
 	}, nil
 }
 

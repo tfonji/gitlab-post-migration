@@ -10,10 +10,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tfonji/gitlab-post-migration/internal/config"
 	"github.com/tfonji/gitlab-post-migration/internal/discovery"
@@ -37,6 +39,8 @@ func main() {
 		os.Exit(2)
 	}
 
+	setupLogging()
+
 	var err error
 	switch os.Args[1] {
 	case "discover":
@@ -54,9 +58,32 @@ func main() {
 		os.Exit(2)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		slog.Error("run failed", "command", os.Args[1], "error", err)
 		os.Exit(1)
 	}
+}
+
+// setupLogging sends structured logs to stderr (alongside the result
+// tables). LOG_LEVEL=debug additionally logs every successful API call;
+// the default (info) logs identity, run context, and every failed call.
+func setupLogging() {
+	level := slog.LevelInfo
+	if err := level.UnmarshalText([]byte(envOr("LOG_LEVEL", "info"))); err != nil {
+		level = slog.LevelInfo
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+}
+
+// newClient builds the API client and logs who it runs as, so every job log
+// starts with the identity and CI context behind the calls that follow.
+func newClient(ctx context.Context, gitlabURL, token string) (*gitlabclient.Client, error) {
+	c, err := gitlabclient.New(gitlabURL, token)
+	if err != nil {
+		return nil, err
+	}
+	gitlabclient.LogCIContext()
+	c.LogIdentity(ctx)
+	return c, nil
 }
 
 func usage() {
@@ -97,7 +124,8 @@ func runDiscover(args []string) error {
 		return err
 	}
 
-	c, err := gitlabclient.New(*gitlabURL, *token)
+	ctx := context.Background()
+	c, err := newClient(ctx, *gitlabURL, *token)
 	if err != nil {
 		return err
 	}
@@ -119,12 +147,12 @@ func runDiscover(args []string) error {
 		return fmt.Errorf("at least one of --group or --projects must be set")
 	}
 
-	scope, err := discovery.Resolve(context.Background(), c, groupID, projectIDs)
+	scope, err := discovery.Resolve(ctx, c, groupID, projectIDs)
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintf(os.Stderr, "discovered %d project(s) across %d top-level group(s)\n", len(scope.Projects), len(scope.TopLevelGroups))
+	slog.Info("discovered", "projects", len(scope.Projects), "top_level_groups", len(scope.TopLevelGroups))
 	return writeJSON(*out, scope)
 }
 
@@ -147,7 +175,9 @@ func runPlanOrApply(args []string, mode report.Mode) error {
 		*out = fmt.Sprintf("%s-%s.json", mode, *taskName)
 	}
 
-	c, err := gitlabclient.New(*gitlabURL, *token)
+	ctx := context.Background()
+	slog.Info("starting", "mode", mode, "task", *taskName)
+	c, err := newClient(ctx, *gitlabURL, *token)
 	if err != nil {
 		return err
 	}
@@ -162,8 +192,6 @@ func runPlanOrApply(args []string, mode report.Mode) error {
 		return fmt.Errorf("unknown task %q (see list-tasks)", *taskName)
 	}
 
-	ctx := context.Background()
-
 	if mode == report.ModePlan {
 		scope, err := loadScope(*scopeFile)
 		if err != nil {
@@ -173,7 +201,7 @@ func runPlanOrApply(args []string, mode report.Mode) error {
 		if err != nil {
 			return err
 		}
-		run := report.TaskRun{Task: *taskName, Mode: report.ModePlan, Diffs: diffs}
+		run := report.TaskRun{Task: *taskName, Mode: report.ModePlan, Origin: report.CurrentOrigin(), Diffs: diffs}
 		report.BuildTaskReport(run).WriteTable(os.Stderr)
 		return writeJSON(*out, run)
 	}
@@ -185,13 +213,33 @@ func runPlanOrApply(args []string, mode report.Mode) error {
 	if err != nil {
 		return fmt.Errorf("reading plan file %s: %w", *planFile, err)
 	}
+	logPlanOrigin(*planFile, planRun.Origin)
 	results, err := t.Apply(ctx, planRun.Diffs, cfg)
 	if err != nil {
 		return err
 	}
-	run := report.TaskRun{Task: *taskName, Mode: report.ModeApply, Results: results}
+	run := report.TaskRun{Task: *taskName, Mode: report.ModeApply, Origin: report.CurrentOrigin(), Results: results}
 	report.BuildTaskReport(run).WriteTable(os.Stderr)
 	return writeJSON(*out, run)
+}
+
+// logPlanOrigin says which plan apply is about to act on. Retrying an apply
+// job replays the same plan artifact, so if an earlier attempt already made
+// some of its changes, the plan is stale -- the age and job here make that
+// visible, and the fix is re-running the plan job.
+func logPlanOrigin(path string, o *report.RunOrigin) {
+	if o == nil {
+		slog.Warn("plan file has no origin info (produced by an older build)", "plan", path)
+		return
+	}
+	slog.Info("applying plan",
+		"plan", path,
+		"generated_at", o.GeneratedAt.Format(time.RFC3339),
+		"age", time.Since(o.GeneratedAt).Round(time.Second),
+		"plan_pipeline_id", o.PipelineID,
+		"plan_job_id", o.JobID,
+		"plan_commit", o.CommitSHA,
+	)
 }
 
 func runReport(args []string) error {

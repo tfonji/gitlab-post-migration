@@ -30,8 +30,30 @@ const (
 type TaskRun struct {
 	Task    string        `json:"task"`
 	Mode    Mode          `json:"mode"`
+	Origin  *RunOrigin    `json:"origin,omitempty"`  // where/when this file was produced
 	Diffs   []diff.Diff   `json:"diffs,omitempty"`   // set when Mode == ModePlan
 	Results []diff.Result `json:"results,omitempty"` // set when Mode == ModeApply
+}
+
+// RunOrigin records where a plan/result file came from, so apply can log
+// which plan it's acting on -- e.g. to spot a retried apply job replaying a
+// plan whose changes were already partly made.
+type RunOrigin struct {
+	GeneratedAt time.Time `json:"generated_at"`
+	PipelineID  string    `json:"pipeline_id,omitempty"`
+	JobID       string    `json:"job_id,omitempty"`
+	CommitSHA   string    `json:"commit_sha,omitempty"`
+}
+
+// CurrentOrigin describes the running process, from GitLab CI's predefined
+// variables when present.
+func CurrentOrigin() *RunOrigin {
+	return &RunOrigin{
+		GeneratedAt: time.Now().UTC(),
+		PipelineID:  os.Getenv("CI_PIPELINE_ID"),
+		JobID:       os.Getenv("CI_JOB_ID"),
+		CommitSHA:   os.Getenv("CI_COMMIT_SHA"),
+	}
 }
 
 type Stats struct {

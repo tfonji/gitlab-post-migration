@@ -63,6 +63,10 @@ build → discover → plan (parallel, one job per task) → apply (manual gate,
   reviewed like code.
 - `GITLAB_TOKEN` CI/CD variable (masked/protected) -- needs `api` scope on
   the target group(s).
+- `LOG_LEVEL` (optional, default `info`) -- every command logs the CI
+  context, the token's user (`is_admin`, `bot`) and scopes, and every failed
+  API call with GitLab's response body and request ID. Set to `debug` to
+  also log every successful API call.
 
 ## Local usage
 
