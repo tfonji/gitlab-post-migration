@@ -37,6 +37,10 @@ func Register(c *gitlabclient.Client) {
 
 func (t *Task) Name() string { return Name }
 
+// RequiresGroupMembership: protecting/updating a branch is refused (403) for
+// an admin token that isn't a project member (gitlab-org/gitlab#428273).
+func (t *Task) RequiresGroupMembership() bool { return true }
+
 func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Config) ([]diff.Diff, error) {
 	desired := desiredBranch(cfg)
 	pushLevel, err := accessLevelFromString(protectPushAccessLevel(cfg))
@@ -50,7 +54,7 @@ func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Conf
 
 	diffs := make([]diff.Diff, 0, len(scope.Projects))
 	for _, p := range scope.Projects {
-		target := diff.Target{Kind: diff.TargetProject, ID: p.ID, Path: p.PathWithNamespace}
+		target := diff.Target{Kind: diff.TargetProject, ID: p.ID, Path: p.PathWithNamespace, TopLevelGroupID: p.TopLevelGroupID}
 
 		proj, _, err := t.Client.REST.Projects.GetProject(p.ID, nil, gitlab.WithContext(ctx))
 		if err != nil {

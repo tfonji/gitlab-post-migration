@@ -63,6 +63,16 @@ build → discover → plan (parallel, one job per task) → apply (manual gate,
   reviewed like code.
 - `GITLAB_TOKEN` CI/CD variable (masked/protected) -- needs `api` scope on
   the target group(s).
+- Temporary group membership: GitLab refuses the protected branches API
+  (403) for an instance admin who isn't a project member
+  ([gitlab-org/gitlab#428273](https://gitlab.com/gitlab-org/gitlab/-/work_items/428273)).
+  So `apply` for `project-default-branch-rename` makes the token's user a
+  Maintainer of each targeted top-level group before it starts and reverts
+  that afterwards, even if the apply fails: an added membership is removed,
+  a raised one is restored, and an existing Maintainer/Owner membership is
+  left untouched. Added memberships also expire the next day, in case the
+  job is killed before it can revert. The token's user must be an instance
+  admin (with the `admin_mode` scope) to add itself to SAML-managed groups.
 - `LOG_LEVEL` (optional, default `info`) -- every command logs the CI
   context, the token's user (`is_admin`, `bot`) and scopes, and every failed
   API call with GitLab's response body and request ID. Set to `debug` to

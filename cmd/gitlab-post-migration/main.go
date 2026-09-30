@@ -8,18 +8,23 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/tfonji/gitlab-post-migration/internal/config"
+	"github.com/tfonji/gitlab-post-migration/internal/diff"
 	"github.com/tfonji/gitlab-post-migration/internal/discovery"
 	"github.com/tfonji/gitlab-post-migration/internal/gitlabclient"
+	"github.com/tfonji/gitlab-post-migration/internal/membership"
 	"github.com/tfonji/gitlab-post-migration/internal/report"
 	"github.com/tfonji/gitlab-post-migration/internal/task"
 
@@ -175,7 +180,10 @@ func runPlanOrApply(args []string, mode report.Mode) error {
 		*out = fmt.Sprintf("%s-%s.json", mode, *taskName)
 	}
 
-	ctx := context.Background()
+	// A cancelled CI job (SIGTERM) cancels in-flight API calls, so apply can
+	// still revert any temporary group membership before exiting.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	slog.Info("starting", "mode", mode, "task", *taskName)
 	c, err := newClient(ctx, *gitlabURL, *token)
 	if err != nil {
@@ -214,13 +222,75 @@ func runPlanOrApply(args []string, mode report.Mode) error {
 		return fmt.Errorf("reading plan file %s: %w", *planFile, err)
 	}
 	logPlanOrigin(*planFile, planRun.Origin)
-	results, err := t.Apply(ctx, planRun.Diffs, cfg)
-	if err != nil {
+	results, err := applyWithMembership(ctx, c, t, planRun.Diffs, cfg)
+	if results == nil && err != nil {
 		return err
 	}
 	run := report.TaskRun{Task: *taskName, Mode: report.ModeApply, Origin: report.CurrentOrigin(), Results: results}
 	report.BuildTaskReport(run).WriteTable(os.Stderr)
-	return writeJSON(*out, run)
+	if werr := writeJSON(*out, run); werr != nil {
+		return errors.Join(err, werr)
+	}
+	// err here is a failed membership revert: the results are written, but
+	// the job must fail so someone removes the leftover membership.
+	return err
+}
+
+// applyWithMembership runs t.Apply, first granting the token user
+// Maintainer on every top-level group the drifted diffs belong to when the
+// task needs it, and always reverting that grant afterwards -- on success,
+// failure, panic, or a cancelled job. Results are returned even when only
+// the revert failed, so they still get written.
+func applyWithMembership(ctx context.Context, c *gitlabclient.Client, t task.Task, diffs []diff.Diff, cfg *config.Config) (results []diff.Result, err error) {
+	req, ok := t.(task.GroupMembershipRequirer)
+	if !ok || !req.RequiresGroupMembership() {
+		return t.Apply(ctx, diffs, cfg)
+	}
+
+	groupIDs, err := driftedGroupIDs(diffs)
+	if err != nil {
+		return nil, err
+	}
+	if len(groupIDs) == 0 {
+		return t.Apply(ctx, diffs, cfg)
+	}
+
+	grants, err := membership.Ensure(ctx, c, groupIDs)
+	defer func() {
+		// Fresh context: ctx may already be cancelled, and the revert
+		// matters most exactly then.
+		revertCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if rerr := membership.Revert(revertCtx, c, grants); rerr != nil {
+			slog.Error("could not revert temporary group membership -- remove it by hand", "error", rerr)
+			err = errors.Join(err, rerr)
+		}
+	}()
+	if err != nil {
+		return nil, fmt.Errorf("granting token user group membership: %w", err)
+	}
+	return t.Apply(ctx, diffs, cfg)
+}
+
+// driftedGroupIDs returns the distinct top-level groups of the diffs apply
+// will act on.
+func driftedGroupIDs(diffs []diff.Diff) ([]int64, error) {
+	seen := map[int64]bool{}
+	var ids []int64
+	for _, d := range diffs {
+		if d.Status != diff.StatusDrifted {
+			continue
+		}
+		gid := d.Target.TopLevelGroupID
+		if gid == 0 {
+			return nil, fmt.Errorf("plan file has no top-level group for %s (produced by an older build) -- re-run the plan job", d.Target.Path)
+		}
+		if !seen[gid] {
+			seen[gid] = true
+			ids = append(ids, gid)
+		}
+	}
+	return ids, nil
 }
 
 // logPlanOrigin says which plan apply is about to act on. Retrying an apply

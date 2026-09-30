@@ -34,6 +34,10 @@ type Target struct {
 	Kind TargetKind `json:"kind"`
 	ID   int64      `json:"id"`
 	Path string     `json:"path"` // full_path (group) or path_with_namespace (project)
+	// TopLevelGroupID is the project's top-level group, recorded at plan
+	// time so apply can grant the token user membership there (see
+	// internal/membership). Zero for group targets and older plan files.
+	TopLevelGroupID int64 `json:"top_level_group_id,omitempty"`
 }
 
 // Diff is the output of a task's Plan step for one target.

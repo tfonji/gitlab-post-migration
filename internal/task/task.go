@@ -33,6 +33,15 @@ type Task interface {
 	Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config) ([]diff.Result, error)
 }
 
+// GroupMembershipRequirer is implemented by tasks whose Apply calls APIs
+// that refuse an instance admin who isn't a member of the project (e.g. the
+// protected branches API). For those, the CLI grants the token user
+// Maintainer on every targeted top-level group for the duration of Apply
+// and reverts it afterwards (internal/membership).
+type GroupMembershipRequirer interface {
+	RequiresGroupMembership() bool
+}
+
 var (
 	mu       sync.Mutex
 	registry = map[string]Task{}
