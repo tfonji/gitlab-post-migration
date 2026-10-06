@@ -206,7 +206,7 @@ func runPlanOrApply(args []string, mode report.Mode) error {
 			return err
 		}
 		run := report.TaskRun{Task: *taskName, Mode: report.ModePlan, Origin: report.CurrentOrigin(), Diffs: diffs}
-		report.BuildTaskReport(run).WriteTable(os.Stderr)
+		terminal().WriteTask(report.BuildTaskReport(run))
 		return writeJSON(*out, run)
 	}
 
@@ -223,7 +223,7 @@ func runPlanOrApply(args []string, mode report.Mode) error {
 		return err
 	}
 	run := report.TaskRun{Task: *taskName, Mode: report.ModeApply, Origin: report.CurrentOrigin(), Results: results}
-	report.BuildTaskReport(run).WriteTable(os.Stderr)
+	terminal().WriteTask(report.BuildTaskReport(run))
 	if werr := writeJSON(*out, run); werr != nil {
 		return errors.Join(err, werr)
 	}
@@ -308,6 +308,10 @@ func logPlanOrigin(path string, o *report.RunOrigin) {
 	)
 }
 
+func terminal() *report.Terminal {
+	return report.NewTerminal(os.Stderr, report.UseColor(os.Stderr))
+}
+
 func runReport(args []string) error {
 	fs := flag.NewFlagSet("report", flag.ExitOnError)
 	inGlob := fs.String("in", "result-*.json", "glob of task run files to merge (falls back to plan-*.json if none match)")
@@ -344,7 +348,7 @@ func runReport(args []string) error {
 	if err := r.WriteHTML(*htmlOut); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "report: %s\n", r.Stats)
+	terminal().WriteReport(r)
 	if r.Stats.Failed > 0 {
 		return fmt.Errorf("%d target(s) failed", r.Stats.Failed)
 	}

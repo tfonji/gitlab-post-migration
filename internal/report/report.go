@@ -8,10 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"io"
 	"os"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/tfonji/gitlab-post-migration/internal/diff"
@@ -146,29 +144,6 @@ func BuildTaskReport(run TaskRun) TaskReport {
 	return tr
 }
 
-// WriteTable prints every entry as an aligned table (kind/target/status/
-// description, one row per target) followed by a stats summary line --
-// meant for job-log output, so a run's effect is visible without opening
-// the report artifact.
-func (tr TaskReport) WriteTable(w io.Writer) {
-	fmt.Fprintf(w, "\n%s (%s)\n", tr.Task, tr.Mode)
-	if len(tr.Entries) == 0 {
-		fmt.Fprintln(w, "(no targets)")
-		return
-	}
-	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "KIND\tTARGET\tSTATUS\tDESCRIPTION")
-	for _, e := range tr.Entries {
-		desc := e.Description
-		if e.Error != "" {
-			desc = e.Error
-		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", e.TargetKind, e.TargetPath, e.Status, desc)
-	}
-	tw.Flush()
-	fmt.Fprintf(w, "\nsummary: %s\n", tr.Stats)
-}
-
 // Merge combines one TaskRun per task into a single Report.
 func Merge(runs []TaskRun) Report {
 	r := Report{GeneratedAt: time.Now().UTC()}
@@ -280,10 +255,8 @@ func reportBanner(r Report) (class, text string) {
 	if r.Stats.Failed > 0 {
 		return "has-failures", fmt.Sprintf("✗ %d target(s) failed — review required", r.Stats.Failed)
 	}
-	for _, t := range r.Tasks {
-		if t.Mode == ModePlan {
-			return "dry-run", "🔍 Plan mode — no changes have been made. Status below shows what apply would do."
-		}
+	if hasPlanTask(r.Tasks) {
+		return "dry-run", "🔍 Plan mode — no changes have been made. Status below shows what apply would do."
 	}
 	return "clean", fmt.Sprintf("✓ Apply complete — %d applied, %d unchanged, %d skipped", r.Stats.Applied, r.Stats.Unchanged, r.Stats.Skipped)
 }
