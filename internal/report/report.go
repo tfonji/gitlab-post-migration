@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tfonji/gitlab-post-migration/internal/diff"
+	"gitlab-post-migration/internal/diff"
 )
 
 // Mode is whether a task run represents a plan (dry-run) or an apply.

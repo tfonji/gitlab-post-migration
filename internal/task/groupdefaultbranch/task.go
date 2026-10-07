@@ -10,11 +10,11 @@ import (
 
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 
-	"github.com/tfonji/gitlab-post-migration/internal/config"
-	"github.com/tfonji/gitlab-post-migration/internal/diff"
-	"github.com/tfonji/gitlab-post-migration/internal/discovery"
-	"github.com/tfonji/gitlab-post-migration/internal/gitlabclient"
-	"github.com/tfonji/gitlab-post-migration/internal/task"
+	"gitlab-post-migration/internal/config"
+	"gitlab-post-migration/internal/diff"
+	"gitlab-post-migration/internal/discovery"
+	"gitlab-post-migration/internal/gitlabclient"
+	"gitlab-post-migration/internal/task"
 )
 
 const Name = "group-default-branch-setting"

@@ -8,9 +8,9 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/tfonji/gitlab-post-migration/internal/config"
-	"github.com/tfonji/gitlab-post-migration/internal/diff"
-	"github.com/tfonji/gitlab-post-migration/internal/discovery"
+	"gitlab-post-migration/internal/config"
+	"gitlab-post-migration/internal/diff"
+	"gitlab-post-migration/internal/discovery"
 )
 
 // Task is implemented once per post-migration setting. Plan must be

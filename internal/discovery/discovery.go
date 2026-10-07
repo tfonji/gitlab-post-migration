@@ -6,7 +6,7 @@ import (
 
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 
-	"github.com/tfonji/gitlab-post-migration/internal/gitlabclient"
+	"gitlab-post-migration/internal/gitlabclient"
 )
 
 // Resolve turns pipeline input (group IDs and/or explicit project IDs) into

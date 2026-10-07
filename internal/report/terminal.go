@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/tfonji/gitlab-post-migration/internal/diff"
+	"gitlab-post-migration/internal/diff"
 )
 
 const (

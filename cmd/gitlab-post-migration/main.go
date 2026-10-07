@@ -20,23 +20,23 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tfonji/gitlab-post-migration/internal/cleanup"
-	"github.com/tfonji/gitlab-post-migration/internal/config"
-	"github.com/tfonji/gitlab-post-migration/internal/diff"
-	"github.com/tfonji/gitlab-post-migration/internal/discovery"
-	"github.com/tfonji/gitlab-post-migration/internal/gitlabclient"
-	"github.com/tfonji/gitlab-post-migration/internal/membership"
-	"github.com/tfonji/gitlab-post-migration/internal/report"
-	"github.com/tfonji/gitlab-post-migration/internal/task"
+	"gitlab-post-migration/internal/cleanup"
+	"gitlab-post-migration/internal/config"
+	"gitlab-post-migration/internal/diff"
+	"gitlab-post-migration/internal/discovery"
+	"gitlab-post-migration/internal/gitlabclient"
+	"gitlab-post-migration/internal/membership"
+	"gitlab-post-migration/internal/report"
+	"gitlab-post-migration/internal/task"
 
 	// Task implementations register themselves via their Register(...)
 	// constructor called from registerTasks below — imported here so the
 	// binary links them in.
-	"github.com/tfonji/gitlab-post-migration/internal/task/complianceframework"
-	"github.com/tfonji/gitlab-post-migration/internal/task/defaultbranchrename"
-	"github.com/tfonji/gitlab-post-migration/internal/task/groupdefaultbranch"
-	"github.com/tfonji/gitlab-post-migration/internal/task/mrapprovalpolicy"
-	"github.com/tfonji/gitlab-post-migration/internal/task/protectedenvironment"
+	"gitlab-post-migration/internal/task/complianceframework"
+	"gitlab-post-migration/internal/task/defaultbranchrename"
+	"gitlab-post-migration/internal/task/groupdefaultbranch"
+	"gitlab-post-migration/internal/task/mrapprovalpolicy"
+	"gitlab-post-migration/internal/task/protectedenvironment"
 )
 
 func main() {

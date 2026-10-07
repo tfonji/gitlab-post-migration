@@ -1,4 +1,4 @@
-module github.com/tfonji/gitlab-post-migration
+module gitlab-post-migration
 
 go 1.24.0
 

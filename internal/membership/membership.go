@@ -22,7 +22,7 @@ import (
 
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 
-	"github.com/tfonji/gitlab-post-migration/internal/gitlabclient"
+	"gitlab-post-migration/internal/gitlabclient"
 )
 
 // RequiredLevel is the minimum role that lets a user manage protected
