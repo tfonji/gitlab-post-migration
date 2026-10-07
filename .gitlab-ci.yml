@@ -1,6 +1,7 @@
 stages:
   - build
   - discover
+  - cleanup
   - plan
   - apply
   - report
@@ -27,9 +28,25 @@ discover:
     paths: [projects.json]
     expire_in: 1 day
 
+# Runs before every plan job: unlinks the security policy project and removes
+# the compliance framework from each group, because leaving them in place can
+# make apply jobs fail. Plans wait for it (needs) so they read the cleaned
+# state, and a failure here stops the pipeline before anything is planned.
+cleanup:
+  stage: cleanup
+  needs: ["discover"]
+  script:
+    - ./bin/post-migration-linux-amd64 cleanup --scope=projects.json --config="$CONFIG_FILE" --out=cleanup-result.json
+  artifacts:
+    when: always
+    paths: [cleanup-result.json]
+    expire_in: 1 month
+
 .plan: &plan
   stage: plan
-  needs: ["discover"]
+  needs:
+    - "discover"
+    - { job: "cleanup", artifacts: false }
   script:
     - ./bin/post-migration-linux-amd64 plan --task="$TASK" --scope=projects.json --config="$CONFIG_FILE" --out="plan-$TASK.json"
   artifacts:
@@ -104,6 +121,7 @@ report:
   stage: report
   needs:
     - "discover"
+    - "cleanup"
     - { job: "plan:group-mr-approval-policy", optional: true }
     - { job: "plan:group-compliance-framework", optional: true }
     - { job: "plan:group-protected-environment", optional: true }

@@ -137,7 +137,11 @@ func (t *Terminal) writeSummary(s Stats, plan bool) {
 	case s.Failed > 0:
 		t.println(t.paint(ansiBold+ansiRed, fmt.Sprintf("✗ %d failed", s.Failed)) + " — " + counts)
 	case plan:
-		t.println(t.paint(ansiBold+ansiBlue, "~ Plan complete") + " — " + counts + " (no changes made)")
+		note := " (no changes made)"
+		if s.Applied > 0 {
+			note = " (applied changes are from cleanup; the rest is not applied yet)"
+		}
+		t.println(t.paint(ansiBold+ansiBlue, "~ Plan complete") + " — " + counts + note)
 	default:
 		t.println(t.paint(ansiBold+ansiGreen, "✓ Apply complete") + " — " + counts)
 	}

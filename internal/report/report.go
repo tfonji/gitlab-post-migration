@@ -256,6 +256,9 @@ func reportBanner(r Report) (class, text string) {
 		return "has-failures", fmt.Sprintf("✗ %d target(s) failed — review required", r.Stats.Failed)
 	}
 	if hasPlanTask(r.Tasks) {
+		if r.Stats.Applied > 0 {
+			return "dry-run", "🔍 Plan mode — the only changes made so far are from cleanup. Status below shows what apply would do."
+		}
 		return "dry-run", "🔍 Plan mode — no changes have been made. Status below shows what apply would do."
 	}
 	return "clean", fmt.Sprintf("✓ Apply complete — %d applied, %d unchanged, %d skipped", r.Stats.Applied, r.Stats.Unchanged, r.Stats.Skipped)

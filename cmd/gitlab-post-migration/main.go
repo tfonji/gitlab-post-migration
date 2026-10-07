@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tfonji/gitlab-post-migration/internal/cleanup"
 	"github.com/tfonji/gitlab-post-migration/internal/config"
 	"github.com/tfonji/gitlab-post-migration/internal/diff"
 	"github.com/tfonji/gitlab-post-migration/internal/discovery"
@@ -50,6 +51,8 @@ func main() {
 	switch os.Args[1] {
 	case "discover":
 		err = runDiscover(os.Args[2:])
+	case "cleanup":
+		err = runCleanup(os.Args[2:])
 	case "plan":
 		err = runPlanOrApply(os.Args[2:], report.ModePlan)
 	case "apply":
@@ -96,6 +99,8 @@ func usage() {
 
 Commands:
   discover     resolve a group/project IDs into a scope (projects.json)
+  cleanup      unlink the security policy project and remove the compliance
+               framework from each top-level group, ahead of plan/apply
   plan         diff live state against desired config for one task
   apply        reconcile the diffs from a prior plan for one task
   report       merge task result files into one pipeline-run report
@@ -155,6 +160,54 @@ func runDiscover(args []string) error {
 
 	slog.Info("discovered", "projects", len(scope.Projects), "top_level_groups", len(scope.TopLevelGroups))
 	return writeJSON(*out, scope)
+}
+
+// runCleanup removes what would make later apply jobs fail (a linked
+// security policy project, the configured compliance framework) from every
+// top-level group in scope. It mutates immediately, and must run before the
+// plan jobs so they read the cleaned state. It processes every group even if
+// some fail, then fails the job so the pipeline doesn't proceed to plan.
+func runCleanup(args []string) error {
+	fs := flag.NewFlagSet("cleanup", flag.ExitOnError)
+	gitlabURL := fs.String("gitlab-url", envOr("CI_SERVER_URL", "https://gitlab.com"), "GitLab base URL")
+	token := fs.String("token", os.Getenv("GITLAB_TOKEN"), "GitLab API token")
+	scopeFile := fs.String("scope", "projects.json", "scope file produced by discover")
+	configFile := fs.String("config", "configs/desired-state.yaml", "desired-state config file")
+	out := fs.String("out", "cleanup-result.json", "output file")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	slog.Info("starting", "command", "cleanup")
+	c, err := newClient(ctx, *gitlabURL, *token)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load(*configFile)
+	if err != nil {
+		return err
+	}
+	scope, err := loadScope(*scopeFile)
+	if err != nil {
+		return err
+	}
+
+	results, err := cleanup.Run(ctx, c, scope, cfg)
+	if err != nil {
+		return err
+	}
+	run := report.TaskRun{Task: cleanup.Name, Mode: report.ModeApply, Origin: report.CurrentOrigin(), Results: results}
+	tr := report.BuildTaskReport(run)
+	terminal().WriteTask(tr)
+	if err := writeJSON(*out, run); err != nil {
+		return err
+	}
+	if tr.Stats.Failed > 0 {
+		return fmt.Errorf("cleanup failed for %d check(s); fix and re-run before planning", tr.Stats.Failed)
+	}
+	return nil
 }
 
 func runPlanOrApply(args []string, mode report.Mode) error {
@@ -331,6 +384,15 @@ func runReport(args []string) error {
 			return err
 		}
 	}
+
+	// Cleanup results are always included on top of whichever of the
+	// result/plan sets applies -- they must not count as "a result file
+	// exists" and hide the plan-only view.
+	cleanupFiles, err := filepath.Glob("cleanup-*.json")
+	if err != nil {
+		return err
+	}
+	matches = append(cleanupFiles, matches...)
 
 	runs := make([]report.TaskRun, 0, len(matches))
 	for _, m := range matches {
