@@ -13,11 +13,15 @@ import (
 // group processed in a run (see design discussion: settings are uniform,
 // not per-group).
 type Config struct {
-	MRPolicy             MRPolicy             `yaml:"mr_policy"`
-	ComplianceFramework  ComplianceFramework  `yaml:"compliance_framework"`
-	ProtectedEnvironment ProtectedEnvironment `yaml:"protected_environment"`
-	GroupDefaultBranch   GroupDefaultBranch   `yaml:"group_default_branch"`
-	DefaultBranchRename  DefaultBranchRename  `yaml:"default_branch_rename"`
+	MRPolicy            MRPolicy            `yaml:"mr_policy"`
+	ComplianceFramework ComplianceFramework `yaml:"compliance_framework"`
+	// ProtectedEnvironments lists every group-level protected environment (a
+	// deployment tier: production, staging, ...) to enforce. The single
+	// ProtectedEnvironment key still works and is used when the list is empty.
+	ProtectedEnvironments []ProtectedEnvironment `yaml:"protected_environments"`
+	ProtectedEnvironment  ProtectedEnvironment   `yaml:"protected_environment"`
+	GroupDefaultBranch    GroupDefaultBranch     `yaml:"group_default_branch"`
+	DefaultBranchRename   DefaultBranchRename    `yaml:"default_branch_rename"`
 }
 
 // MRPolicy identifies the security policy project (GitLab's "merge request
@@ -39,9 +43,10 @@ type ComplianceFramework struct {
 	PipelineConfigurationFullPath string `yaml:"pipeline_configuration_full_path"` // "<file>.yml@<group>/<project>"
 }
 
-// ProtectedEnvironment describes the single group-level protected
-// environment to enforce (currently always "production", deploy + approvers
-// restricted to Maintainer).
+// ProtectedEnvironment describes one group-level protected environment to
+// enforce, e.g. "production" or "staging" (GitLab keys group-level protected
+// environments by deployment tier), with deploy and approval restricted to the
+// given access level.
 type ProtectedEnvironment struct {
 	EnvironmentName       string `yaml:"environment_name"`
 	DeployAccessLevel     string `yaml:"deploy_access_level"`   // "maintainer"
@@ -63,6 +68,16 @@ type DefaultBranchRename struct {
 	BranchName              string `yaml:"branch_name"`                // "master"
 	ProtectPushAccessLevel  string `yaml:"protect_push_access_level"`  // "maintainer"
 	ProtectMergeAccessLevel string `yaml:"protect_merge_access_level"` // "maintainer"
+}
+
+// ProtectedEnvironmentList returns the environments to enforce: the
+// protected_environments list, else the legacy single protected_environment,
+// else "production" with the task's defaults.
+func (c *Config) ProtectedEnvironmentList() []ProtectedEnvironment {
+	if len(c.ProtectedEnvironments) > 0 {
+		return c.ProtectedEnvironments
+	}
+	return []ProtectedEnvironment{c.ProtectedEnvironment}
 }
 
 func Load(path string) (*Config, error) {

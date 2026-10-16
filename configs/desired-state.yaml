@@ -16,11 +16,17 @@ compliance_framework:
   description: "security compliance framework"
   pipeline_configuration_full_path: "compliance-framework-appsec.gitlab-ci.yml@compliance-framework/compliance-framework-appsec"
 
-protected_environment:
-  environment_name: production
-  deploy_access_level: maintainer
-  approver_access_level: maintainer
-  required_approval_count: 1
+# Group-level protected environments are keyed by deployment tier. Each is
+# protected the same way: deploy and approval restricted to Maintainer.
+protected_environments:
+  - environment_name: production
+    deploy_access_level: maintainer
+    approver_access_level: maintainer
+    required_approval_count: 1
+  - environment_name: staging
+    deploy_access_level: maintainer
+    approver_access_level: maintainer
+    required_approval_count: 1
 
 group_default_branch:
   branch_name: master

@@ -1,7 +1,8 @@
 // Package protectedenvironment implements the "group-protected-environment"
-// task: ensures a group-level protected environment (name from config,
-// default "production") exists with deploy access and approval both
-// restricted to the configured access level (default Maintainer).
+// task: ensures each group-level protected environment from config (default
+// just "production"; e.g. production and staging) exists with deploy access
+// and approval both restricted to the configured access level (default
+// Maintainer).
 package protectedenvironment
 
 import (
@@ -30,59 +31,100 @@ func Register(c *gitlabclient.Client) { task.Register(New(c)) }
 
 func (t *Task) Name() string { return Name }
 
+// desired is one environment's settings, resolved from config with defaults.
+type desired struct {
+	name      string
+	level     gitlab.AccessLevelValue
+	approvals int64
+}
+
+func desiredEnvironments(cfg *config.Config) ([]desired, error) {
+	var out []desired
+	for _, e := range cfg.ProtectedEnvironmentList() {
+		level, err := accessLevelFromString(orDefault(e.DeployAccessLevel, "maintainer"))
+		if err != nil {
+			return nil, err
+		}
+		approvals := e.RequiredApprovalCount
+		if approvals <= 0 {
+			approvals = 1
+		}
+		out = append(out, desired{name: orDefault(e.EnvironmentName, "production"), level: level, approvals: approvals})
+	}
+	return out, nil
+}
+
+func orDefault(v, def string) string {
+	if v != "" {
+		return v
+	}
+	return def
+}
+
 func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Config) ([]diff.Diff, error) {
-	envName := envName(cfg)
-	accessLevel, err := accessLevelFromString(deployAccessLevel(cfg))
+	envs, err := desiredEnvironments(cfg)
 	if err != nil {
 		return nil, err
 	}
-	requiredApprovals := requiredApprovalCount(cfg)
 
-	diffs := make([]diff.Diff, 0, len(scope.TopLevelGroups))
+	diffs := make([]diff.Diff, 0, len(scope.TopLevelGroups)*len(envs))
 	for _, g := range scope.TopLevelGroups {
 		target := diff.Target{Kind: diff.TargetGroup, ID: g.ID, Path: g.FullPath}
 
-		current, _, err := t.Client.REST.GroupProtectedEnvironments.GetGroupProtectedEnvironment(g.ID, envName, gitlab.WithContext(ctx))
-		if err != nil {
-			// A 404 just means the environment isn't protected yet — that's drift, not a failure.
-			if isNotFound(err) {
-				diffs = append(diffs, diff.Diff{
-					Target:      target,
-					Status:      diff.StatusDrifted,
-					Description: fmt.Sprintf("environment %q is not protected yet", envName),
-				})
+		for _, env := range envs {
+			detail := map[string]any{"environment": env.name}
+			current, _, err := t.Client.REST.GroupProtectedEnvironments.GetGroupProtectedEnvironment(g.ID, env.name, gitlab.WithContext(ctx))
+			if err != nil {
+				// A 404 just means the environment isn't protected yet — that's drift, not a failure.
+				if isNotFound(err) {
+					diffs = append(diffs, diff.Diff{
+						Target:      target,
+						Status:      diff.StatusDrifted,
+						Description: fmt.Sprintf("environment %q is not protected yet", env.name),
+						Detail:      detail,
+					})
+					continue
+				}
+				diffs = append(diffs, diff.Diff{Target: target, Status: diff.StatusFailed, Description: fmt.Sprintf("checking environment %q: %v", env.name, err), Detail: detail})
 				continue
 			}
-			diffs = append(diffs, diff.Diff{Target: target, Status: diff.StatusFailed, Description: fmt.Sprintf("checking environment %q: %v", envName, err)})
-			continue
-		}
 
-		if matches(current, accessLevel, requiredApprovals) {
-			diffs = append(diffs, diff.Diff{Target: target, Status: diff.StatusUnchanged, Description: fmt.Sprintf("environment %q already protected as desired", envName)})
-			continue
-		}
+			if matches(current, env.level, env.approvals) {
+				diffs = append(diffs, diff.Diff{Target: target, Status: diff.StatusUnchanged, Description: fmt.Sprintf("environment %q already protected as desired", env.name), Detail: detail})
+				continue
+			}
 
-		diffs = append(diffs, diff.Diff{
-			Target:      target,
-			Status:      diff.StatusDrifted,
-			Description: fmt.Sprintf("environment %q protection differs from desired policy", envName),
-		})
+			diffs = append(diffs, diff.Diff{
+				Target:      target,
+				Status:      diff.StatusDrifted,
+				Description: fmt.Sprintf("environment %q protection differs from desired policy", env.name),
+				Detail:      detail,
+			})
+		}
 	}
 	return diffs, nil
 }
 
 func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config) ([]diff.Result, error) {
-	envName := envName(cfg)
-	accessLevel, err := accessLevelFromString(deployAccessLevel(cfg))
+	envs, err := desiredEnvironments(cfg)
 	if err != nil {
 		return nil, err
 	}
-	requiredApprovals := requiredApprovalCount(cfg)
+	byName := map[string]desired{}
+	for _, e := range envs {
+		byName[e.name] = e
+	}
 
 	results := make([]diff.Result, 0, len(diffs))
 	for _, d := range diffs {
 		if d.Status != diff.StatusDrifted {
 			results = append(results, diff.Result{Target: d.Target, Status: d.Status, Description: d.Description})
+			continue
+		}
+		name, _ := d.Detail["environment"].(string)
+		env, ok := byName[name]
+		if !ok {
+			results = append(results, diff.Result{Target: d.Target, Status: diff.StatusFailed, Error: fmt.Sprintf("diff names environment %q, which is not in the config", name)})
 			continue
 		}
 
@@ -96,20 +138,20 @@ func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config)
 		// count now belongs solely on each ApprovalRules entry, which this
 		// already sets.
 		_, _, err := t.Client.REST.GroupProtectedEnvironments.ProtectGroupEnvironment(d.Target.ID, &gitlab.ProtectGroupEnvironmentOptions{
-			Name: gitlab.Ptr(envName),
+			Name: gitlab.Ptr(env.name),
 			DeployAccessLevels: &[]*gitlab.GroupEnvironmentAccessOptions{
-				{AccessLevel: gitlab.Ptr(accessLevel)},
+				{AccessLevel: gitlab.Ptr(env.level)},
 			},
 			ApprovalRules: &[]*gitlab.GroupEnvironmentApprovalRuleOptions{
-				{AccessLevel: gitlab.Ptr(accessLevel), RequiredApprovalCount: gitlab.Ptr(requiredApprovals)},
+				{AccessLevel: gitlab.Ptr(env.level), RequiredApprovalCount: gitlab.Ptr(env.approvals)},
 			},
 		}, gitlab.WithContext(ctx))
 		if err != nil {
-			results = append(results, diff.Result{Target: d.Target, Status: diff.StatusFailed, Error: fmt.Sprintf("protecting environment %q: %v", envName, err)})
+			results = append(results, diff.Result{Target: d.Target, Status: diff.StatusFailed, Error: fmt.Sprintf("protecting environment %q: %v", env.name, err)})
 			continue
 		}
 
-		results = append(results, diff.Result{Target: d.Target, Status: diff.StatusApplied, Description: fmt.Sprintf("protected environment %q", envName)})
+		results = append(results, diff.Result{Target: d.Target, Status: diff.StatusApplied, Description: fmt.Sprintf("protected environment %q", env.name)})
 	}
 	return results, nil
 }
@@ -132,27 +174,6 @@ func matches(current *gitlab.GroupProtectedEnvironment, wantAccess gitlab.Access
 		}
 	}
 	return deployOK && approvalOK
-}
-
-func envName(cfg *config.Config) string {
-	if cfg.ProtectedEnvironment.EnvironmentName != "" {
-		return cfg.ProtectedEnvironment.EnvironmentName
-	}
-	return "production"
-}
-
-func deployAccessLevel(cfg *config.Config) string {
-	if cfg.ProtectedEnvironment.DeployAccessLevel != "" {
-		return cfg.ProtectedEnvironment.DeployAccessLevel
-	}
-	return "maintainer"
-}
-
-func requiredApprovalCount(cfg *config.Config) int64 {
-	if cfg.ProtectedEnvironment.RequiredApprovalCount > 0 {
-		return cfg.ProtectedEnvironment.RequiredApprovalCount
-	}
-	return 1
 }
 
 func accessLevelFromString(level string) (gitlab.AccessLevelValue, error) {
