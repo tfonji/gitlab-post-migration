@@ -3,7 +3,8 @@
 // create that branch from the current default (if it doesn't already
 // exist), protect it (creating or updating the protection to match desired
 // push/merge access), and switch the project's default branch pointer to
-// it.
+// it. A desired branch that already exists is used as it is, even when it
+// is behind or has diverged from the current default.
 package defaultbranchrename
 
 import (
@@ -66,11 +67,12 @@ func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Conf
 		// branchAction records what Apply should do about the branch
 		// itself: "create" (desired doesn't exist yet), "reuse" (it
 		// already exists AND its tip matches the current default's tip,
-		// e.g. a retry after a partial prior run), or "" when no switch
-		// is needed at all. A pre-existing desired branch whose tip does
-		// NOT match current is a conflict this task refuses to resolve
-		// silently -- see the StatusFailed branch below.
+		// e.g. a retry after a partial prior run), "adopt" (it already
+		// exists but its tip differs, e.g. an old, out-of-date master:
+		// it becomes the default as it is, nothing is merged or reset),
+		// or "" when no switch is needed at all.
 		branchAction := ""
+		branchNote := ""
 		if needsSwitch {
 			existing, _, err := t.Client.REST.Branches.GetBranch(p.ID, desired, gitlab.WithContext(ctx))
 			switch {
@@ -88,15 +90,11 @@ func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Conf
 				if branchTip(existing) == branchTip(currentBranch) {
 					branchAction = "reuse"
 				} else {
-					diffs = append(diffs, diff.Diff{
-						Target: target,
-						Status: diff.StatusFailed,
-						Description: fmt.Sprintf(
-							"%q already exists (tip %s) but differs from %q's tip (%s) -- won't switch the default branch to it automatically; delete the stale %q or fast-forward it first",
-							desired, shortSHA(existing), proj.DefaultBranch, shortSHA(currentBranch), desired,
-						),
-					})
-					continue
+					branchAction = "adopt"
+					branchNote = fmt.Sprintf(
+						"%q already exists (tip %s) but differs from %q (tip %s); it becomes the default as it is, and commits only on %q stay on that branch",
+						desired, shortSHA(existing), proj.DefaultBranch, shortSHA(currentBranch), proj.DefaultBranch,
+					)
 				}
 			}
 		}
@@ -125,6 +123,8 @@ func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Conf
 				descParts = append(descParts, fmt.Sprintf("default branch is %q, want %q (will create %q)", proj.DefaultBranch, desired, desired))
 			case "reuse":
 				descParts = append(descParts, fmt.Sprintf("default branch is %q, want %q (%q already exists and matches)", proj.DefaultBranch, desired, desired))
+			case "adopt":
+				descParts = append(descParts, fmt.Sprintf("default branch is %q, want %q (%s)", proj.DefaultBranch, desired, branchNote))
 			}
 		}
 		if protectionAction == "create" {
@@ -142,6 +142,7 @@ func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Conf
 				"desired_default_branch": desired,
 				"needs_default_switch":   needsSwitch,
 				"branch_action":          branchAction,
+				"branch_note":            branchNote,
 				"protection_action":      protectionAction,
 			},
 		})
@@ -171,6 +172,7 @@ func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config)
 		branchAction, _ := d.Detail["branch_action"].(string)
 		protectionAction, _ := d.Detail["protection_action"].(string)
 		current, _ := d.Detail["current_default_branch"].(string)
+		branchNote, _ := d.Detail["branch_note"].(string)
 
 		var actions []string
 
@@ -195,6 +197,8 @@ func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config)
 				actions = append(actions, fmt.Sprintf("created %q from %q", desired, current))
 			case "reuse":
 				actions = append(actions, fmt.Sprintf("%q already existed and matched %q, reused it", desired, current))
+			case "adopt":
+				actions = append(actions, fmt.Sprintf("%q already existed and differs from %q, used it as is (%s)", desired, current, branchNote))
 			default:
 				results = append(results, diff.Result{Target: d.Target, Status: diff.StatusFailed, Error: fmt.Sprintf("diff missing/invalid branch_action detail: %q", branchAction)})
 				continue
