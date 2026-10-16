@@ -27,6 +27,14 @@ protected_environments:
     deploy_access_level: maintainer
     approver_access_level: maintainer
     required_approval_count: 1
+  # Developers and Maintainers may deploy; the TechLib Approvers group approves.
+  # That group is shared into each top-level group first (as Reporter) if it
+  # isn't already, because a group approval rule needs the group to have access.
+  - environment_name: other
+    deploy_access_level: developer
+    required_approval_count: 1
+    approver_group_id: 23328
+    approver_group_access_level: reporter
 
 group_default_branch:
   branch_name: master

@@ -52,6 +52,16 @@ type ProtectedEnvironment struct {
 	DeployAccessLevel     string `yaml:"deploy_access_level"`   // "maintainer"
 	ApproverAccessLevel   string `yaml:"approver_access_level"` // "maintainer"
 	RequiredApprovalCount int64  `yaml:"required_approval_count"`
+
+	// ApproverGroupID, when set, makes that group the approver (instead of a
+	// role): the approval rule names the group. A group-level rule only works
+	// for a group that has access to the top-level group, so with
+	// EnsureApproverGroupShared (the default when ApproverGroupID is set) the
+	// task first checks the top-level group is shared with it and shares it at
+	// ApproverGroupAccessLevel (default "reporter") if not.
+	ApproverGroupID           int64  `yaml:"approver_group_id"`
+	EnsureApproverGroupShared *bool  `yaml:"ensure_approver_group_shared"`
+	ApproverGroupAccessLevel  string `yaml:"approver_group_access_level"` // "reporter"
 }
 
 // GroupDefaultBranch is the group setting governing the default branch name

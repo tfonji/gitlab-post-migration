@@ -24,7 +24,7 @@ One task per pipeline job, each independently plan-then-apply:
 |---|---|---|
 | `group-mr-approval-policy` | top-level group | links a security policy project (GitLab's "merge request approval policy" feature) to the group |
 | `group-compliance-framework` | top-level group + its projects | creates/reconciles a compliance framework (name/color/description/pipeline config) at the group, then assigns it to every project in the group |
-| `group-protected-environment` | top-level group | protects the `production` and `staging` environment tiers (`protected_environments` in the desired state), deploy + approval restricted to Maintainer |
+| `group-protected-environment` | top-level group | protects the `production`, `staging` and `other` environment tiers (`protected_environments` in the desired state): production and staging deploy + approval restricted to Maintainer; `other` deployable by Developers and Maintainers and approved by the TechLib Approvers group (id 23328), which is first shared into the top-level group as Reporter if it isn't already (an existing share below Reporter is removed and re-shared as Reporter) |
 | `group-default-branch-setting` | top-level group | sets the default branch name for *new* projects created in the group going forward |
 | `project-default-branch-rename` | project | if the project's default branch isn't `master`, creates `master` from the current default (an existing `master` is used as it is, even if it is behind or has diverged), protects it (push/merge restricted to Maintainer), and switches the project's default branch pointer to it -- also fixes protection alone if `master` is already default but unprotected/misconfigured |
 
