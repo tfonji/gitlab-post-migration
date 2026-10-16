@@ -76,6 +76,15 @@ func Resolve(ctx context.Context, c *gitlabclient.Client, groupIDs []int64, proj
 		})
 	}
 
+	// A group named directly is a target even when it holds no (unarchived)
+	// project: the group-level tasks still apply to its top-level group, so a
+	// subgroup passed in resolves up to the group that owns it.
+	for _, groupID := range groupIDs {
+		if _, err := topLevelOfGroup(ctx, c, groupID, topLevelCache); err != nil {
+			return Scope{}, fmt.Errorf("resolving top-level group for group %d: %w", groupID, err)
+		}
+	}
+
 	groupsByID := make(map[int64]Group, len(topLevelCache))
 	for _, g := range topLevelCache {
 		groupsByID[g.ID] = g
@@ -85,6 +94,28 @@ func Resolve(ctx context.Context, c *gitlabclient.Client, groupIDs []int64, proj
 	}
 
 	return scope, nil
+}
+
+// topLevelOfGroup walks a group's ancestry up to the group with no parent.
+func topLevelOfGroup(ctx context.Context, c *gitlabclient.Client, groupID int64, cache map[int64]Group) (Group, error) {
+	currentID := groupID
+	for {
+		if g, ok := cache[currentID]; ok {
+			cache[groupID] = g
+			return g, nil
+		}
+		grp, _, err := c.REST.Groups.GetGroup(currentID, nil, gitlab.WithContext(ctx))
+		if err != nil {
+			return Group{}, fmt.Errorf("fetching group %d: %w", currentID, err)
+		}
+		if grp.ParentID == 0 {
+			g := Group{ID: grp.ID, FullPath: grp.FullPath}
+			cache[grp.ID] = g
+			cache[groupID] = g
+			return g, nil
+		}
+		currentID = grp.ParentID
+	}
 }
 
 // resolveTopLevelGroup walks a namespace's ancestry up to the group with no
