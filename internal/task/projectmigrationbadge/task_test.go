@@ -24,8 +24,9 @@ import (
 type fakeInstance struct {
 	mu          sync.Mutex
 	imageExists bool
-	denyCommit  bool // refuse creating the image file (branch protection)
-	commitRace  bool // refuse once with "already exists", having just made it exist
+	denyCommit  bool            // refuse creating the image file (branch protection)
+	branches    map[string]bool // branches that exist in the image repo
+	commitRace  bool            // refuse once with "already exists", having just made it exist
 	files       []map[string]any
 	order       []string // "file", "badge" in call order
 	// badgesAfterFirstAdd makes project 1 report the badges that were added.
@@ -51,6 +52,15 @@ func (f *fakeInstance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "image/svg+xml")
 		_, _ = w.Write([]byte("<svg/>"))
+	case r.Method == http.MethodGet && strings.Contains(path, "/repository/branches/"):
+		name := path[strings.LastIndex(path, "/")+1:]
+		if f.branches != nil && !f.branches[name] {
+			http.NotFound(w, r)
+			return
+		}
+		reply(200, map[string]any{"name": name})
+	case r.Method == http.MethodGet && path == "/api/v4/projects/tools/badges":
+		reply(200, map[string]any{"id": 50, "default_branch": "master"})
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/repository/files/assets/azdo-migrated-2026-10-19.svg"):
 		if f.denyCommit {
 			reply(400, map[string]any{"message": "You are not allowed to push into this branch"})
@@ -228,7 +238,7 @@ func TestRefusedImageCommitAddsNoBadges(t *testing.T) {
 	}
 	failed := 0
 	for _, r := range results {
-		if r.Status == diff.StatusFailed && strings.Contains(r.Error, "let Maintainers push") {
+		if r.Status == diff.StatusFailed && strings.Contains(r.Error, "image_ref to an unprotected branch") {
 			failed++
 		}
 	}
@@ -388,5 +398,38 @@ func TestBadgeNameMatchIgnoresCaseAndSpaces(t *testing.T) {
 	badges := []*gitlab.ProjectBadge{{Name: "  azdo migrated Jan. 2, 2026", Kind: "project"}}
 	if ownBadge(badges, "AZDO Migrated") == nil {
 		t.Error("a differently cased or padded name still counts as the migration badge")
+	}
+}
+
+func TestAConfiguredBranchThatDoesNotExistIsCreatedFromTheDefaultBranch(t *testing.T) {
+	f := &fakeInstance{branches: map[string]bool{"master": true}}
+	task, _ := newTask(t, f)
+	c := cfg("tools/badges")
+	c.ProjectMigrationBadge.ImageRef = "badge-images"
+
+	diffs, err := task.Plan(context.Background(), scope(), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := task.Apply(context.Background(), diffs, c); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.files) != 1 || f.files[0]["branch"] != "badge-images" || f.files[0]["start_branch"] != "master" {
+		t.Errorf("commit = %v, want branch badge-images started from master", f.files)
+	}
+	if len(f.added) != 2 || !strings.Contains(f.added[0]["image_url"], "/-/raw/badge-images/assets/") {
+		t.Errorf("badges = %v, want them to point at the badge-images branch", f.added)
+	}
+}
+
+func TestAnExistingBranchIsCommittedToDirectly(t *testing.T) {
+	f := &fakeInstance{branches: map[string]bool{"master": true}}
+	task, _ := newTask(t, f)
+	diffs, _ := task.Plan(context.Background(), scope(), cfg("tools/badges"))
+	if _, err := task.Apply(context.Background(), diffs, cfg("tools/badges")); err != nil {
+		t.Fatal(err)
+	}
+	if _, set := f.files[0]["start_branch"]; set {
+		t.Errorf("an existing branch must not get a start_branch: %v", f.files[0])
 	}
 }

@@ -107,7 +107,10 @@ The date is part of the picture, so there is one SVG per date.
 - **Needs push access.** The token's user must be allowed to push to that branch
   (protected branch "Allowed to push": Maintainers; no code-owner approval
   requirement, no blocking push rule or security policy). If the commit is
-  refused, no badge is added and each project reports why.
+  refused, no badge is added and each project reports why. To avoid touching
+  `master`, set `project_migration_badge.image_ref` to a branch such as
+  `badge-images`: it is created from the default branch when missing, and the
+  badges point at it. That branch must not be protected against pushes either.
 - **Visibility.** The repository must be readable by every user (internal), or
   the badge shows as a broken image.
 - **Date.** Today (UTC), or `MIGRATION_DATE` (YYYY-MM-DD). A project that already

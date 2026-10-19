@@ -191,17 +191,26 @@ func (t *Task) createImage(ctx context.Context, project, ref, path, dateStr stri
 	if exists, err := t.imageExists(ctx, project, path, ref); err != nil || exists {
 		return err
 	}
-	_, _, err = t.Client.REST.RepositoryFiles.CreateFile(project, path, &gitlab.CreateFileOptions{
+	opts := &gitlab.CreateFileOptions{
 		Branch:        gitlab.Ptr(ref),
 		Content:       gitlab.Ptr(SVG(date)),
 		CommitMessage: gitlab.Ptr(fmt.Sprintf("Add %q badge image for %s [skip ci]", labelText, FormatDate(date))),
-	}, gitlab.WithContext(ctx))
+	}
+	// A configured image_ref that does not exist yet is created from the default branch.
+	if _, _, err := t.Client.REST.Branches.GetBranch(project, ref, gitlab.WithContext(ctx)); errors.Is(err, gitlab.ErrNotFound) {
+		proj, _, perr := t.Client.REST.Projects.GetProject(project, nil, gitlab.WithContext(ctx))
+		if perr != nil {
+			return fmt.Errorf("looking up %s to create branch %s: %v", project, ref, perr)
+		}
+		opts.StartBranch = gitlab.Ptr(proj.DefaultBranch)
+	}
+	_, _, err = t.Client.REST.RepositoryFiles.CreateFile(project, path, opts, gitlab.WithContext(ctx))
 	if err != nil {
 		// A parallel run may have just added it.
 		if exists, _ := t.imageExists(ctx, project, path, ref); exists {
 			return nil
 		}
-		return fmt.Errorf("committing the badge image %s to %s (%s): %v -- let Maintainers push to that branch, or commit it by hand with `badge-image`", path, project, ref, err)
+		return fmt.Errorf("committing the badge image %s to %s (%s): %v -- let the token's user push to that branch, set project_migration_badge.image_ref to an unprotected branch (created if missing), or commit it by hand with `badge-image`", path, project, ref, err)
 	}
 	return nil
 }
