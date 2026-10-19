@@ -3,10 +3,11 @@
 // so anyone landing on the project can see it came over from Azure DevOps.
 //
 // The badge picture is a static SVG that contains the date, so there is one
-// image per date (see WriteImage / the badge-image command). It lives in a
-// repository every user can read, and the task checks it exists before adding
-// any badge that points at it. The badge has to link somewhere, so it links to
-// the project itself.
+// image per date. It lives in a repository every user can read. When the
+// image for the date is missing, Apply commits it to that repository's branch
+// before adding any badge that points at it (the plan says so; the
+// badge-image command makes the same file by hand). The badge has to link
+// somewhere, so it links to the project itself.
 //
 // A project that already has a badge by this name is left alone, whatever its
 // date: the date records when it was migrated, and a later run must not move it.
@@ -42,11 +43,11 @@ type Task struct {
 	Now func() time.Time
 
 	mu        sync.Mutex
-	imageSeen map[string]error // image file path -> result of the existence check
+	imageDone map[string]error // image file -> outcome of ensuring it exists
 }
 
 func New(c *gitlabclient.Client) *Task {
-	return &Task{Client: c, Now: time.Now, imageSeen: map[string]error{}}
+	return &Task{Client: c, Now: time.Now, imageDone: map[string]error{}}
 }
 
 func Register(c *gitlabclient.Client) { task.Register(New(c)) }
@@ -108,7 +109,7 @@ func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Conf
 	imagePath := dir + "/" + ImageFileName(date)
 	imageURL := fmt.Sprintf("%s/%s/-/raw/%s/%s", t.Client.BaseURL(), project, ref, imagePath)
 	name := badgeName(cfg) + " " + FormatDate(date)
-	imageErr := t.checkImage(ctx, project, imagePath, ref)
+	imageExists, imageErr := t.imageExists(ctx, project, imagePath, ref)
 
 	diffs := make([]diff.Diff, 0, len(scope.Projects))
 	for _, p := range scope.Projects {
@@ -127,16 +128,21 @@ func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Conf
 			diffs = append(diffs, diff.Diff{Target: target, Status: diff.StatusFailed, Description: imageErr.Error()})
 			continue
 		}
-		diffs = append(diffs, diff.Diff{
-			Target:      target,
-			Status:      diff.StatusDrifted,
-			Description: fmt.Sprintf("no %q badge yet (will add %q)", badgeName(cfg), name),
-			Detail: map[string]any{
-				"name":      name,
-				"image_url": imageURL,
-				"link_url":  fmt.Sprintf("%s/%s", t.Client.BaseURL(), p.PathWithNamespace),
-			},
-		})
+		desc := fmt.Sprintf("no %q badge yet (will add %q)", badgeName(cfg), name)
+		detail := map[string]any{
+			"name":      name,
+			"image_url": imageURL,
+			"link_url":  fmt.Sprintf("%s/%s", t.Client.BaseURL(), p.PathWithNamespace),
+		}
+		if !imageExists {
+			desc += fmt.Sprintf("; the image is missing and will be committed to %s (%s) first", project, ref)
+			detail["create_image"] = true
+			detail["image_project"] = project
+			detail["image_ref"] = ref
+			detail["image_path"] = imagePath
+			detail["image_date"] = date.Format("2006-01-02")
+		}
+		diffs = append(diffs, diff.Diff{Target: target, Status: diff.StatusDrifted, Description: desc, Detail: detail})
 	}
 	return diffs, nil
 }
@@ -172,24 +178,55 @@ func ownBadge(badges []*gitlab.ProjectBadge, name string) *gitlab.ProjectBadge {
 	return nil
 }
 
-// checkImage confirms the badge SVG exists, once per run. A missing image would
-// leave every project with a broken-image badge.
-func (t *Task) checkImage(ctx context.Context, project, path, ref string) error {
+// imageExists reports whether the badge SVG is in the repository, once per run.
+// An error means it could not be determined (not that it is missing).
+func (t *Task) imageExists(ctx context.Context, project, path, ref string) (bool, error) {
+	_, _, err := t.Client.REST.RepositoryFiles.GetRawFile(project, path, &gitlab.GetRawFileOptions{Ref: gitlab.Ptr(ref)}, gitlab.WithContext(ctx))
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, gitlab.ErrNotFound):
+		return false, nil
+	}
+	return false, fmt.Errorf("checking badge image %s in %s: %v", path, project, err)
+}
+
+// ensureImage commits the badge SVG for a date to the image repository unless it
+// is already there, once per run. It is safe to run twice at the same time: if
+// the other run wins, the file exists and that is all that is needed.
+func (t *Task) ensureImage(ctx context.Context, project, ref, path, dateStr string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	key := project + "@" + ref + ":" + path
-	if err, ok := t.imageSeen[key]; ok {
+	if err, ok := t.imageDone[key]; ok {
 		return err
 	}
-	_, _, err := t.Client.REST.RepositoryFiles.GetRawFile(project, path, &gitlab.GetRawFileOptions{Ref: gitlab.Ptr(ref)}, gitlab.WithContext(ctx))
-	switch {
-	case errors.Is(err, gitlab.ErrNotFound):
-		err = fmt.Errorf("badge image %s not found in %s (%s); create it with `badge-image` and commit it first", path, project, ref)
-	case err != nil:
-		err = fmt.Errorf("checking badge image %s in %s: %v", path, project, err)
-	}
-	t.imageSeen[key] = err
+	err := t.createImage(ctx, project, ref, path, dateStr)
+	t.imageDone[key] = err
 	return err
+}
+
+func (t *Task) createImage(ctx context.Context, project, ref, path, dateStr string) error {
+	date, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		return fmt.Errorf("diff has a bad image date %q", dateStr)
+	}
+	if exists, err := t.imageExists(ctx, project, path, ref); err != nil || exists {
+		return err
+	}
+	_, _, err = t.Client.REST.RepositoryFiles.CreateFile(project, path, &gitlab.CreateFileOptions{
+		Branch:        gitlab.Ptr(ref),
+		Content:       gitlab.Ptr(SVG(date)),
+		CommitMessage: gitlab.Ptr(fmt.Sprintf("Add %q badge image for %s [skip ci]", labelText, FormatDate(date))),
+	}, gitlab.WithContext(ctx))
+	if err != nil {
+		// A parallel run may have just added it.
+		if exists, _ := t.imageExists(ctx, project, path, ref); exists {
+			return nil
+		}
+		return fmt.Errorf("committing the badge image %s to %s (%s): %v -- let Maintainers push to that branch, or commit it by hand with `badge-image`", path, project, ref, err)
+	}
+	return nil
 }
 
 func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config) ([]diff.Result, error) {
@@ -206,6 +243,17 @@ func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config)
 			results = append(results, diff.Result{Target: d.Target, Status: diff.StatusFailed, Error: "diff is missing the badge name, image or link"})
 			continue
 		}
+		if create, _ := d.Detail["create_image"].(bool); create {
+			project, _ := d.Detail["image_project"].(string)
+			ref, _ := d.Detail["image_ref"].(string)
+			path, _ := d.Detail["image_path"].(string)
+			date, _ := d.Detail["image_date"].(string)
+			if err := t.ensureImage(ctx, project, ref, path, date); err != nil {
+				results = append(results, diff.Result{Target: d.Target, Status: diff.StatusFailed, Error: err.Error()})
+				continue
+			}
+		}
+
 		// The plan may be older than another run: re-check right before adding,
 		// so a project that got its badge in the meantime keeps that one (and
 		// its date) instead of getting a second.

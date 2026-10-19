@@ -95,17 +95,22 @@ export GITLAB_TOKEN=...
 
 ## Migration badge
 
-`project-migration-badge` needs a picture per date, because the date is part of
-the SVG:
+`project-migration-badge` adds an "AZDO Migrated <date>" badge to each project.
+The date is part of the picture, so there is one SVG per date.
 
-1. `./bin/gitlab-post-migration badge-image --date 2026-10-19 --out assets`
-   writes `assets/azdo-migrated-2026-10-19.svg` (default date: today, UTC).
-2. Commit it to this repository's default branch. By default the pipeline reads
-   the images from the project it runs in (`CI_PROJECT_PATH`) on its default
-   branch; `project_migration_badge.image_project` / `image_ref` override that.
-   The repository must be readable by every user (internal visibility), or the
-   badge shows as a broken image.
-3. Run the pipeline. `MIGRATION_DATE` (YYYY-MM-DD) pins the date; blank means
-   today, UTC. The plan fails, without adding anything, when the image for that
-   date is not in the repository.
-
+- **Created by the pipeline.** If `assets/azdo-migrated-<date>.svg` is not yet in
+  the image repository, the plan says so and `apply` commits it (message ends
+  `[skip ci]`) to the repository's default branch once, before adding any badge.
+  By default the image repository is the project the pipeline runs in
+  (`CI_PROJECT_PATH`) on its default branch; `project_migration_badge.image_project`
+  / `image_ref` override that.
+- **Needs push access.** The token's user must be allowed to push to that branch
+  (protected branch "Allowed to push": Maintainers; no code-owner approval
+  requirement, no blocking push rule or security policy). If the commit is
+  refused, no badge is added and each project reports why.
+- **Visibility.** The repository must be readable by every user (internal), or
+  the badge shows as a broken image.
+- **Date.** Today (UTC), or `MIGRATION_DATE` (YYYY-MM-DD). A project that already
+  has an "AZDO Migrated" badge keeps it, whatever its date.
+- **By hand.** `./bin/gitlab-post-migration badge-image --date 2026-10-19 --out assets`
+  writes the same SVG, if you prefer to commit it yourself.

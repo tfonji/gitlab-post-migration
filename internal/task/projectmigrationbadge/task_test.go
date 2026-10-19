@@ -27,6 +27,10 @@ import (
 type fakeInstance struct {
 	mu          sync.Mutex
 	imageExists bool
+	denyCommit  bool // refuse creating the image file (branch protection)
+	commitRace  bool // refuse once with "already exists", having just made it exist
+	files       []map[string]any
+	order       []string // "file", "badge" in call order
 	// badgesAfterFirstAdd makes project 1 report the badges that were added.
 	badgesAfterFirstAdd bool
 	added               []map[string]string // badges added: project -> body
@@ -50,6 +54,22 @@ func (f *fakeInstance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "image/svg+xml")
 		_, _ = w.Write([]byte("<svg/>"))
+	case r.Method == http.MethodPost && strings.HasSuffix(path, "/repository/files/assets/azdo-migrated-2026-10-19.svg"):
+		if f.denyCommit {
+			reply(400, map[string]any{"message": "You are not allowed to push into this branch"})
+			return
+		}
+		if f.commitRace {
+			f.commitRace, f.imageExists = false, true
+			reply(400, map[string]any{"message": "A file with this name already exists"})
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.files = append(f.files, body)
+		f.order = append(f.order, "file")
+		f.imageExists = true
+		reply(201, map[string]any{"file_path": "assets/azdo-migrated-2026-10-19.svg", "branch": body["branch"]})
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/api/v4/projects/") && strings.HasSuffix(path, "/badges"):
 		switch strings.TrimSuffix(strings.TrimPrefix(path, "/api/v4/projects/"), "/badges") {
 		case "2":
@@ -70,6 +90,7 @@ func (f *fakeInstance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		body["project"] = strings.TrimSuffix(strings.TrimPrefix(path, "/api/v4/projects/"), "/badges")
 		f.added = append(f.added, body)
+		f.order = append(f.order, "badge")
 		reply(201, map[string]any{"id": 99, "name": body["name"]})
 	default:
 		http.NotFound(w, r)
@@ -158,9 +179,10 @@ func TestAnExistingBadgeKeepsItsOriginalDate(t *testing.T) {
 	}
 }
 
-func TestMissingImageFailsInsteadOfAddingBrokenBadges(t *testing.T) {
+func TestMissingImageIsCommittedOnceBeforeTheBadges(t *testing.T) {
 	f := &fakeInstance{imageExists: false}
 	task, _ := newTask(t, f)
+
 	diffs, err := task.Plan(context.Background(), scope(), cfg("tools/badges"))
 	if err != nil {
 		t.Fatal(err)
@@ -168,8 +190,8 @@ func TestMissingImageFailsInsteadOfAddingBrokenBadges(t *testing.T) {
 	for _, d := range diffs {
 		switch d.Target.ID {
 		case 1, 3:
-			if d.Status != diff.StatusFailed || !strings.Contains(d.Description, "badge-image") {
-				t.Errorf("project %d = %+v, want a failure naming badge-image", d.Target.ID, d)
+			if d.Status != diff.StatusDrifted || !strings.Contains(d.Description, "image is missing and will be committed to tools/badges (master) first") {
+				t.Errorf("project %d plan = %+v", d.Target.ID, d)
 			}
 		case 2:
 			if d.Status != diff.StatusUnchanged {
@@ -177,11 +199,62 @@ func TestMissingImageFailsInsteadOfAddingBrokenBadges(t *testing.T) {
 			}
 		}
 	}
+	if len(f.files) != 0 {
+		t.Fatal("planning must not write anything")
+	}
+
 	if _, err := task.Apply(context.Background(), diffs, cfg("tools/badges")); err != nil {
 		t.Fatal(err)
 	}
+	if len(f.files) != 1 {
+		t.Fatalf("image committed %d times, want once for the whole run", len(f.files))
+	}
+	file := f.files[0]
+	if file["branch"] != "master" || !strings.Contains(file["content"].(string), "Oct. 19, 2026") || !strings.Contains(file["commit_message"].(string), "[skip ci]") {
+		t.Errorf("commit = %v", file)
+	}
+	if got := strings.Join(f.order, ","); got != "file,badge,badge" {
+		t.Errorf("order = %s, want the image first, then the two badges", got)
+	}
+}
+
+func TestRefusedImageCommitAddsNoBadges(t *testing.T) {
+	f := &fakeInstance{imageExists: false, denyCommit: true}
+	task, _ := newTask(t, f)
+	diffs, _ := task.Plan(context.Background(), scope(), cfg("tools/badges"))
+	results, err := task.Apply(context.Background(), diffs, cfg("tools/badges"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(f.added) != 0 {
-		t.Errorf("no badge may be added without the image: %v", f.added)
+		t.Errorf("no badge may point at a missing image: %v", f.added)
+	}
+	failed := 0
+	for _, r := range results {
+		if r.Status == diff.StatusFailed && strings.Contains(r.Error, "let Maintainers push") {
+			failed++
+		}
+	}
+	if failed != 2 {
+		t.Errorf("results = %+v, want projects 1 and 3 to fail with the push hint", results)
+	}
+}
+
+func TestImageAddedByAParallelRunIsNotAnError(t *testing.T) {
+	f := &fakeInstance{imageExists: false, commitRace: true}
+	task, _ := newTask(t, f)
+	diffs, _ := task.Plan(context.Background(), scope(), cfg("tools/badges"))
+	results, err := task.Apply(context.Background(), diffs, cfg("tools/badges"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range results {
+		if r.Status == diff.StatusFailed {
+			t.Errorf("unexpected failure: %+v", r)
+		}
+	}
+	if len(f.added) != 2 {
+		t.Errorf("added = %v, want both badges", f.added)
 	}
 }
 
