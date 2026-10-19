@@ -22,6 +22,8 @@ type Config struct {
 	ProtectedEnvironment  ProtectedEnvironment   `yaml:"protected_environment"`
 	GroupDefaultBranch    GroupDefaultBranch     `yaml:"group_default_branch"`
 	DefaultBranchRename   DefaultBranchRename    `yaml:"default_branch_rename"`
+
+	ProjectMigrationBadge ProjectMigrationBadge `yaml:"project_migration_badge"`
 }
 
 // MRPolicy identifies the security policy project (GitLab's "merge request
@@ -88,6 +90,17 @@ func (c *Config) ProtectedEnvironmentList() []ProtectedEnvironment {
 		return c.ProtectedEnvironments
 	}
 	return []ProtectedEnvironment{c.ProtectedEnvironment}
+}
+
+// ProjectMigrationBadge describes the "AZDO Migrated <date>" badge added to
+// every migrated project. The badge picture is an SVG kept in a repository
+// that every user can read (internal visibility), at
+// <instance>/<ImageProject>/-/raw/<ImageRef>/<ImageDir>/azdo-migrated-<date>.svg.
+type ProjectMigrationBadge struct {
+	Name         string `yaml:"name"`          // "AZDO Migrated"; the date is appended
+	ImageProject string `yaml:"image_project"` // "group/project" holding the SVGs
+	ImageRef     string `yaml:"image_ref"`     // "master"
+	ImageDir     string `yaml:"image_dir"`     // "assets"
 }
 
 func Load(path string) (*Config, error) {

@@ -39,6 +39,9 @@ func New(baseURL, token string) (*Client, error) {
 	}, nil
 }
 
+// BaseURL is the instance's base URL without a trailing slash.
+func (c *Client) BaseURL() string { return c.baseURL }
+
 // GraphQL executes a single GraphQL query/mutation against the instance's
 // /api/graphql endpoint and decodes the "data" field into out.
 func (c *Client) GraphQL(ctx context.Context, query string, variables map[string]any, out any) error {

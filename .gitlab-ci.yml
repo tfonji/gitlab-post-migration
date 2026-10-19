@@ -15,6 +15,9 @@ variables:
     value: ""
   CONFIG_FILE:
     value: "configs/desired-state.yaml"
+  MIGRATION_DATE:
+    description: "Date on the 'AZDO Migrated' badge, YYYY-MM-DD. Leave blank for today (UTC). The matching SVG must already be committed (badge-image)."
+    value: ""
 
 workflow:
   rules:
@@ -117,6 +120,15 @@ apply:project-default-branch-rename:
   needs: [ "plan:project-default-branch-rename"]
   variables: { TASK: "project-default-branch-rename" }
 
+plan:project-migration-badge:
+  <<: *plan
+  variables: { TASK: "project-migration-badge" }
+
+apply:project-migration-badge:
+  <<: *apply
+  needs: [ "plan:project-migration-badge"]
+  variables: { TASK: "project-migration-badge" }
+
 report:
   stage: report
   needs:
@@ -127,11 +139,13 @@ report:
     - { job: "plan:group-protected-environment", optional: true }
     - { job: "plan:group-default-branch-setting", optional: true }
     - { job: "plan:project-default-branch-rename", optional: true }
+    - { job: "plan:project-migration-badge", optional: true }
     - { job: "apply:group-mr-approval-policy", optional: true }
     - { job: "apply:group-compliance-framework", optional: true }
     - { job: "apply:group-protected-environment", optional: true }
     - { job: "apply:group-default-branch-setting", optional: true }
     - { job: "apply:project-default-branch-rename", optional: true }
+    - { job: "apply:project-migration-badge", optional: true }
   script:
     - ./bin/post-migration/post-migration-linux-amd64 report --in="result-*.json" --json-out=report.json --html-out=report.html
   artifacts:

@@ -27,6 +27,7 @@ One task per pipeline job, each independently plan-then-apply:
 | `group-protected-environment` | top-level group | protects the `production`, `staging` and `other` environment tiers (`protected_environments` in the desired state): production and staging deploy + approval restricted to Maintainer; `other` deployable by Developers and Maintainers and approved by the TechLib Approvers group (id 23328), which is first shared into the top-level group as Reporter if it isn't already (an existing share below Reporter is removed and re-shared as Reporter) |
 | `group-default-branch-setting` | top-level group | sets the default branch name for *new* projects created in the group going forward |
 | `project-default-branch-rename` | project | if the project's default branch isn't `master`, creates `master` from the current default (an existing `master` is used as it is, even if it is behind or has diverged), protects it (push/merge restricted to Maintainer), and switches the project's default branch pointer to it -- also fixes protection alone if `master` is already default but unprotected/misconfigured |
+| `project-migration-badge` | project | adds a badge reading "AZDO Migrated <date>" (e.g. "AZDO Migrated Oct. 19, 2026") to every migrated project; the badge links to the project itself, and a project that already has one keeps its original date |
 
 ## Pipeline flow
 
@@ -91,3 +92,18 @@ export GITLAB_TOKEN=...
 ./bin/gitlab-post-migration apply --task=project-default-branch-rename --plan=plan-project-default-branch-rename.json
 ./bin/gitlab-post-migration report --in="result-*.json"
 ```
+
+## Migration badge
+
+`project-migration-badge` needs a picture per date, because the date is part of
+the SVG:
+
+1. `./bin/gitlab-post-migration badge-image --date 2026-10-19 --out assets`
+   writes `assets/azdo-migrated-2026-10-19.svg` (default date: today, UTC).
+2. Commit it to the repository named by `project_migration_badge.image_project`
+   in the desired state. That repository must be readable by every user
+   (internal visibility), or the badge shows as a broken image.
+3. Run the pipeline. `MIGRATION_DATE` (YYYY-MM-DD) pins the date; blank means
+   today, UTC. The plan fails, without adding anything, when the image for that
+   date is not in the repository.
+

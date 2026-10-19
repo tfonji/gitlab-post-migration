@@ -36,6 +36,7 @@ import (
 	"gitlab-post-migration/internal/task/defaultbranchrename"
 	"gitlab-post-migration/internal/task/groupdefaultbranch"
 	"gitlab-post-migration/internal/task/mrapprovalpolicy"
+	"gitlab-post-migration/internal/task/projectmigrationbadge"
 	"gitlab-post-migration/internal/task/protectedenvironment"
 )
 
@@ -59,6 +60,8 @@ func main() {
 		err = runPlanOrApply(os.Args[2:], report.ModeApply)
 	case "report":
 		err = runReport(os.Args[2:])
+	case "badge-image":
+		err = runBadgeImage(os.Args[2:])
 	case "list-tasks":
 		err = runListTasks()
 	default:
@@ -103,6 +106,7 @@ Commands:
                framework from each top-level group, ahead of plan/apply
   plan         diff live state against desired config for one task
   apply        reconcile the diffs from a prior plan for one task
+  badge-image  write the "AZDO Migrated <date>" badge SVG for a date
   report       merge task result files into one pipeline-run report
   list-tasks   print every registered task name`)
 }
@@ -113,6 +117,31 @@ func registerTasks(c *gitlabclient.Client) {
 	protectedenvironment.Register(c)
 	groupdefaultbranch.Register(c)
 	complianceframework.Register(c)
+	projectmigrationbadge.Register(c)
+}
+
+// runBadgeImage writes the badge SVG for a date; commit it to the badge image
+// repository before running project-migration-badge for that date.
+func runBadgeImage(args []string) error {
+	fs := flag.NewFlagSet("badge-image", flag.ExitOnError)
+	dateFlag := fs.String("date", "", "migration date, YYYY-MM-DD (default today, UTC)")
+	dir := fs.String("out", "assets", "directory to write the SVG into")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	d := time.Now().UTC()
+	if *dateFlag != "" {
+		var err error
+		if d, err = time.Parse("2006-01-02", *dateFlag); err != nil {
+			return fmt.Errorf("--date %q is not a YYYY-MM-DD date", *dateFlag)
+		}
+	}
+	path, err := projectmigrationbadge.WriteImage(*dir, d)
+	if err != nil {
+		return err
+	}
+	fmt.Println(path)
+	return nil
 }
 
 func runListTasks() error {

@@ -46,3 +46,13 @@ default_branch_rename:
   # force-push for anyone).
   protect_push_access_level: maintainer
   protect_merge_access_level: maintainer
+
+# Every migrated project gets a badge reading "AZDO Migrated <date>". The badge
+# picture is an SVG per date (made with `badge-image`) kept in a repository all
+# users can read. Set image_project before running project-migration-badge.
+project_migration_badge:
+  name: "AZDO Migrated"
+  image_project: ""   # e.g. "<group>/gitlab-post-migration" (internal visibility)
+  image_ref: master
+  image_dir: assets
+
