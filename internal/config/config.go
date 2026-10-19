@@ -98,8 +98,8 @@ func (c *Config) ProtectedEnvironmentList() []ProtectedEnvironment {
 // <instance>/<ImageProject>/-/raw/<ImageRef>/<ImageDir>/azdo-migrated-<date>.svg.
 type ProjectMigrationBadge struct {
 	Name         string `yaml:"name"`          // "AZDO Migrated"; the date is appended
-	ImageProject string `yaml:"image_project"` // "group/project" holding the SVGs
-	ImageRef     string `yaml:"image_ref"`     // "master"
+	ImageProject string `yaml:"image_project"` // "group/project" holding the SVGs; default: the pipeline's own project
+	ImageRef     string `yaml:"image_ref"`     // default: the project's default branch, else "master"
 	ImageDir     string `yaml:"image_dir"`     // "assets"
 }
 

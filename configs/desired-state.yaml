@@ -48,11 +48,10 @@ default_branch_rename:
   protect_merge_access_level: maintainer
 
 # Every migrated project gets a badge reading "AZDO Migrated <date>". The badge
-# picture is an SVG per date (made with `badge-image`) kept in a repository all
-# users can read. Set image_project before running project-migration-badge.
+# picture is an SVG per date (made with `badge-image`) that must be committed to
+# a repository every user can read (internal visibility). By default that is the
+# project the pipeline runs in -- this tool's own repository -- on its default
+# branch; set image_project / image_ref only to use somewhere else.
 project_migration_badge:
   name: "AZDO Migrated"
-  image_project: ""   # e.g. "<group>/gitlab-post-migration" (internal visibility)
-  image_ref: master
   image_dir: assets
-

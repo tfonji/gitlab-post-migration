@@ -73,21 +73,42 @@ func (t *Task) migrationDate() (time.Time, error) {
 	return time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, time.UTC), nil
 }
 
+// imageProject is the project holding the badge images: the configured one,
+// else the project this pipeline runs in (CI_PROJECT_PATH), which is where this
+// tool's own repository, and so `badge-image`'s output, lives.
+func imageProject(cfg *config.Config) string {
+	if p := strings.Trim(cfg.ProjectMigrationBadge.ImageProject, "/"); p != "" {
+		return p
+	}
+	return os.Getenv("CI_PROJECT_PATH")
+}
+
+// imageRef is the branch the images are read from: the configured one, else the
+// project's default branch (CI_DEFAULT_BRANCH), else "master". It must be a
+// branch that stays, not the feature branch a pipeline happens to run on.
+func imageRef(cfg *config.Config) string {
+	if r := cfg.ProjectMigrationBadge.ImageRef; r != "" {
+		return r
+	}
+	return orDefault(os.Getenv("CI_DEFAULT_BRANCH"), "master")
+}
+
 func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Config) ([]diff.Diff, error) {
 	b := cfg.ProjectMigrationBadge
-	if b.ImageProject == "" {
-		return nil, fmt.Errorf("project_migration_badge.image_project is not set: name the project (e.g. group/gitlab-post-migration) that holds the badge images")
+	project := imageProject(cfg)
+	if project == "" {
+		return nil, fmt.Errorf("no project to read the badge images from: set project_migration_badge.image_project (e.g. group/gitlab-post-migration), or run in a pipeline, where it defaults to the pipeline's own project")
 	}
 	date, err := t.migrationDate()
 	if err != nil {
 		return nil, err
 	}
-	ref := orDefault(b.ImageRef, "master")
+	ref := imageRef(cfg)
 	dir := strings.Trim(orDefault(b.ImageDir, "assets"), "/")
 	imagePath := dir + "/" + ImageFileName(date)
-	imageURL := fmt.Sprintf("%s/%s/-/raw/%s/%s", t.Client.BaseURL(), strings.Trim(b.ImageProject, "/"), ref, imagePath)
+	imageURL := fmt.Sprintf("%s/%s/-/raw/%s/%s", t.Client.BaseURL(), project, ref, imagePath)
 	name := badgeName(cfg) + " " + FormatDate(date)
-	imageErr := t.checkImage(ctx, b.ImageProject, imagePath, ref)
+	imageErr := t.checkImage(ctx, project, imagePath, ref)
 
 	diffs := make([]diff.Diff, 0, len(scope.Projects))
 	for _, p := range scope.Projects {

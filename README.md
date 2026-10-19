@@ -100,9 +100,11 @@ the SVG:
 
 1. `./bin/gitlab-post-migration badge-image --date 2026-10-19 --out assets`
    writes `assets/azdo-migrated-2026-10-19.svg` (default date: today, UTC).
-2. Commit it to the repository named by `project_migration_badge.image_project`
-   in the desired state. That repository must be readable by every user
-   (internal visibility), or the badge shows as a broken image.
+2. Commit it to this repository's default branch. By default the pipeline reads
+   the images from the project it runs in (`CI_PROJECT_PATH`) on its default
+   branch; `project_migration_badge.image_project` / `image_ref` override that.
+   The repository must be readable by every user (internal visibility), or the
+   badge shows as a broken image.
 3. Run the pipeline. `MIGRATION_DATE` (YYYY-MM-DD) pins the date; blank means
    today, UTC. The plan fails, without adding anything, when the image for that
    date is not in the repository.

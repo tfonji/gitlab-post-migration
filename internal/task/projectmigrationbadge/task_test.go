@@ -89,6 +89,8 @@ func newTask(t *testing.T, f *fakeInstance) (*Task, string) {
 	task := New(c)
 	task.Now = func() time.Time { return oct19 }
 	t.Setenv(dateEnv, "")
+	t.Setenv("CI_PROJECT_PATH", "")
+	t.Setenv("CI_DEFAULT_BRANCH", "")
 	return task, srv.URL
 }
 
@@ -183,8 +185,47 @@ func TestMissingImageFailsInsteadOfAddingBrokenBadges(t *testing.T) {
 	}
 }
 
-func TestImageProjectMustBeConfigured(t *testing.T) {
+func TestImageProjectDefaultsToThePipelinesOwnProject(t *testing.T) {
+	f := &fakeInstance{imageExists: true}
+	task, base := newTask(t, f)
+	t.Setenv("CI_PROJECT_PATH", "tools/post-migration")
+	t.Setenv("CI_DEFAULT_BRANCH", "main")
+
+	diffs, err := task.Plan(context.Background(), scope(), cfg("")) // nothing configured
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := base + "/tools/post-migration/-/raw/main/assets/azdo-migrated-2026-10-19.svg"
+	for _, d := range diffs {
+		if d.Status == diff.StatusDrifted && d.Detail["image_url"] != want {
+			t.Errorf("image_url = %v, want %s", d.Detail["image_url"], want)
+		}
+	}
+}
+
+func TestConfiguredImageProjectAndRefWinOverThePipelinesOwn(t *testing.T) {
+	f := &fakeInstance{imageExists: true}
+	task, base := newTask(t, f)
+	t.Setenv("CI_PROJECT_PATH", "tools/post-migration")
+	t.Setenv("CI_DEFAULT_BRANCH", "main")
+
+	c := cfg("assets-group/badges")
+	c.ProjectMigrationBadge.ImageRef = "stable"
+	diffs, err := task.Plan(context.Background(), scope(), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := base + "/assets-group/badges/-/raw/stable/assets/azdo-migrated-2026-10-19.svg"
+	for _, d := range diffs {
+		if d.Status == diff.StatusDrifted && d.Detail["image_url"] != want {
+			t.Errorf("image_url = %v, want %s", d.Detail["image_url"], want)
+		}
+	}
+}
+
+func TestNoImageProjectAnywhereIsAnError(t *testing.T) {
 	task, _ := newTask(t, &fakeInstance{})
+	t.Setenv("CI_PROJECT_PATH", "")
 	if _, err := task.Plan(context.Background(), scope(), cfg("")); err == nil || !strings.Contains(err.Error(), "image_project") {
 		t.Errorf("err = %v, want a message about image_project", err)
 	}
