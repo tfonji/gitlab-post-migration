@@ -1,10 +1,7 @@
-// Package diff holds the status vocabulary and target/diff/result shapes
-// shared by every task, so plan and apply output is uniform across the
-// whole pipeline and can be merged into one report.
+// Package diff holds the status and target/diff/result shapes shared by every task, so output merges into one report.
 package diff
 
-// Status is the outcome of comparing (plan) or reconciling (apply) a single
-// target against the desired state.
+// Status is the outcome of comparing (plan) or reconciling (apply) one target.
 type Status string
 
 const (
@@ -12,12 +9,7 @@ const (
 	StatusDrifted   Status = "drifted"   // plan only: differs, not yet applied
 	StatusApplied   Status = "applied"   // apply only: change was made
 	StatusFailed    Status = "failed"    // API call errored
-	// StatusSkipped covers two cases: at apply time, "plan said unchanged,
-	// nothing to do"; at plan time, a task can also use it directly for a
-	// target it determined is intentionally not applicable (e.g.
-	// project-ci-template-mr on a project with no recognized build file) --
-	// distinct from StatusUnchanged, which means the desired state exists
-	// and already matches.
+	// StatusSkipped means nothing to do, or intentionally not applicable; unlike Unchanged, the state may not match.
 	StatusSkipped Status = "skipped"
 )
 
@@ -34,9 +26,7 @@ type Target struct {
 	Kind TargetKind `json:"kind"`
 	ID   int64      `json:"id"`
 	Path string     `json:"path"` // full_path (group) or path_with_namespace (project)
-	// TopLevelGroupID is the project's top-level group, recorded at plan
-	// time so apply can grant the token user membership there (see
-	// internal/membership). Zero for group targets and older plan files.
+	// TopLevelGroupID is recorded at plan time so apply can grant membership there; zero for group targets and old plan files.
 	TopLevelGroupID int64 `json:"top_level_group_id,omitempty"`
 }
 

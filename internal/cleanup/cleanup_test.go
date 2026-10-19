@@ -22,9 +22,7 @@ type fakeFramework struct {
 	IsDefault bool
 }
 
-// fakeGraphQL answers the cleanup queries/mutations from in-memory group
-// state, recording the order of mutations and enforcing GitLab's rule that a
-// default framework can't be destroyed.
+// fakeGraphQL answers cleanup calls from in-memory group state and refuses to destroy a default framework.
 type fakeGraphQL struct {
 	groups    map[string]*fakeGroup
 	calls     []string

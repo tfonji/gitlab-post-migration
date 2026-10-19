@@ -1,22 +1,4 @@
-// Package mrapprovalpolicy implements the "group-mr-approval-policy" task:
-// links a security policy project (GitLab's "merge request approval
-// policy" / scan-result-policy feature) to each top-level group. This is a
-// GraphQL-only, group-level linkage -- not the REST-exposed boolean MR
-// approval settings (allow_author_approval, etc.), which is a different
-// GitLab feature entirely.
-//
-// Query/mutation shapes were verified against GitLab's own
-// terraform-provider-gitlab source
-// (resource_gitlab_group_security_policy_attachment.go: securityPolicyProjectAssign,
-// securityPolicyProject); the mutation's exact argument scalar types were
-// then further verified against GitLab's Ruby source
-// (ee/app/graphql/mutations/security_policy/assign_security_policy_project.rb):
-// fullPath is the String scalar (not ID -- an earlier version of this task
-// had it as ID, which is a real type-name mismatch a GraphQL server
-// rejects; caught the same class of bug in the complianceframework task's
-// mutations, this one just hadn't been exercised against a live instance
-// yet), and securityPolicyProjectId is the ProjectID scalar (also not the
-// plain ID this task originally used).
+// Package mrapprovalpolicy links a security policy project to each top-level group over GraphQL.
 package mrapprovalpolicy
 
 import (

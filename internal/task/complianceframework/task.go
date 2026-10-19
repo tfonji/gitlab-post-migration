@@ -1,33 +1,4 @@
-// Package complianceframework implements the "group-compliance-framework"
-// task: ensures a compliance framework (name/color/description/pipeline
-// config, from desired-state config) exists and matches at each top-level
-// group -- creating it if missing, updating it if its attributes drifted --
-// then assigns it to every project in that group, without disturbing any
-// other frameworks already assigned to a project.
-//
-// Compliance frameworks aren't in the REST API; every call here is
-// GraphQL. The read query and the create/update mutations' shapes were
-// verified directly against GitLab's Ruby source
-// (ee/app/graphql/mutations/compliance_management/frameworks/{create,update}.rb
-// and .../types/compliance_management/compliance_framework_input_type.rb) --
-// notably, pipelineConfigurationFullPath lives inside the `params` input
-// object, not as a sibling of it (an earlier version of this task had it as
-// a sibling and GitLab's GraphQL server rejected it: "InputObject
-// 'CreateComplianceFrameworkInput' doesn't accept argument
-// 'pipelineConfigurationFullPath'"). Also note: pipelineConfigurationFullPath
-// is deprecated as of GitLab 17.4 in favor of pipeline execution policies,
-// though it should still function.
-//
-// projectUpdateComplianceFrameworks (project assignment) is now also
-// source-verified, against ee/app/graphql/mutations/projects/update_compliance_frameworks.rb:
-// projectId is the ProjectID scalar (not plain ID -- this was also wrong
-// originally, alongside the pipelineConfigurationFullPath placement bug
-// above), and complianceFrameworkIds takes a list of
-// ComplianceManagementFrameworkID. The one remaining unconfirmed detail is
-// whether that list's elements are non-null ([ComplianceManagementFrameworkID!]!
-// vs [ComplianceManagementFrameworkID]!) -- the Ruby source's `argument`
-// declaration didn't make this unambiguous from a doc summary alone. If
-// this mutation ever fails with a list-nullability complaint, that's why.
+// Package complianceframework reconciles a compliance framework (GraphQL) at each top-level group and assigns it to its projects.
 package complianceframework
 
 import (
@@ -221,9 +192,7 @@ func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config)
 		results = append(results, diff.Result{Target: d.Target, Status: diff.StatusApplied, Description: fmt.Sprintf("%s compliance framework %q", verb, want.Name)})
 	}
 
-	// Pass 2: assign to every project. A group whose framework diff was
-	// Unchanged/not-in-this-run won't be in frameworkIDByGroupPath yet, so
-	// look it up live the first time it's needed.
+	// Pass 2: assign to every project, looking a group's framework up live if pass 1 did not see it.
 	for _, d := range diffs {
 		if d.Target.Kind != diff.TargetProject {
 			continue

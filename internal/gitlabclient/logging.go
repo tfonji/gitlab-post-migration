@@ -13,15 +13,10 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
-// maxLoggedBody caps how much of an error response body is logged, so a
-// large HTML error page can't flood the job log.
+// maxLoggedBody caps how much of an error body is logged.
 const maxLoggedBody = 2048
 
-// loggingTransport logs every HTTP round trip to the GitLab API. Failed
-// responses (>= 400) are always logged at WARN with GitLab's response body,
-// since that body is usually the only place the real reason lives (e.g.
-// "Branch already exists"); successful ones only at DEBUG. Request headers
-// are never logged -- they carry the token.
+// loggingTransport logs each API round trip: failures at WARN with the body, successes at DEBUG, never headers.
 type loggingTransport struct {
 	next http.RoundTripper
 }
@@ -50,15 +45,13 @@ func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		attrs = append(attrs, "request_id", id)
 	}
 
-	// A GET that 404s is how tasks probe "does this exist yet?" (branch,
-	// protection, membership), so it's expected, not an error.
+	// A GET that 404s is an expected "does it exist yet?" probe, not an error.
 	if resp.StatusCode < 400 || (req.Method == http.MethodGet && resp.StatusCode == http.StatusNotFound) {
 		slog.Debug("gitlab api", attrs...)
 		return resp, nil
 	}
 
-	// Read the body for the log, then hand the caller an identical copy so
-	// go-gitlab can still build its own error from it.
+	// Read the body for the log, then hand the caller an identical copy for go-gitlab.
 	body, readErr := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	resp.Body = io.NopCloser(bytes.NewReader(body))
@@ -73,10 +66,7 @@ func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return resp, nil
 }
 
-// LogIdentity logs who the token authenticates as and what it's allowed to
-// do, so a job log answers "which user/token ran this, and is it admin?"
-// without anyone re-running curl by hand. It never fails the run: a token
-// type that can't introspect itself (e.g. CI_JOB_TOKEN) just logs a warning.
+// LogIdentity logs who the token authenticates as and its scopes; it never fails the run (a CI_JOB_TOKEN just logs a warning).
 func (c *Client) LogIdentity(ctx context.Context) {
 	if c.token == "" {
 		slog.Error("no GitLab token set (GITLAB_TOKEN is empty) -- every API call will be unauthenticated")
@@ -111,8 +101,7 @@ func (c *Client) LogIdentity(ctx context.Context) {
 	}
 }
 
-// LogCIContext logs which pipeline/job/commit this run is and who
-// triggered it, when running under GitLab CI.
+// LogCIContext logs which pipeline, job and commit this is and who triggered it.
 func LogCIContext() {
 	if os.Getenv("GITLAB_CI") == "" {
 		return

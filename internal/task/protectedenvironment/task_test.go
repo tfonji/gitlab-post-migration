@@ -15,8 +15,7 @@ import (
 	"gitlab-post-migration/internal/gitlabclient"
 )
 
-// fakeGroup serves group 5's protected environments: protected maps an
-// environment name to its current (access level, required approvals).
+// fakeGroup serves group 5's protected environments: name -> (access level, required approvals).
 type fakeGroup struct {
 	mu        sync.Mutex
 	protected map[string][2]int

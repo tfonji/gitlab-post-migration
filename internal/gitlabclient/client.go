@@ -1,6 +1,4 @@
-// Package gitlabclient wraps the upstream GitLab REST client and adds a
-// minimal GraphQL client, since compliance frameworks are only exposed over
-// GraphQL.
+// Package gitlabclient wraps the GitLab REST client and adds a minimal GraphQL client (compliance frameworks are GraphQL-only).
 package gitlabclient
 
 import (
@@ -24,8 +22,7 @@ type Client struct {
 }
 
 func New(baseURL, token string) (*Client, error) {
-	// Both the REST and GraphQL clients go through loggingTransport, so every
-	// API call made by any task shows up in the job log the same way.
+	// Both clients share loggingTransport, so every API call is logged the same way.
 	httpClient := &http.Client{Transport: &loggingTransport{next: http.DefaultTransport}}
 	rest, err := gitlab.NewClient(token, gitlab.WithBaseURL(baseURL), gitlab.WithHTTPClient(httpClient))
 	if err != nil {
@@ -42,8 +39,7 @@ func New(baseURL, token string) (*Client, error) {
 // BaseURL is the instance's base URL without a trailing slash.
 func (c *Client) BaseURL() string { return c.baseURL }
 
-// GraphQL executes a single GraphQL query/mutation against the instance's
-// /api/graphql endpoint and decodes the "data" field into out.
+// GraphQL runs one query or mutation against /api/graphql and decodes "data" into out.
 func (c *Client) GraphQL(ctx context.Context, query string, variables map[string]any, out any) error {
 	body, err := json.Marshal(map[string]any{
 		"query":     query,

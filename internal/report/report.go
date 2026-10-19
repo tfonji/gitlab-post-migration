@@ -1,7 +1,4 @@
-// Package report aggregates plan/apply output from every task into a single
-// per-pipeline-run report: one JSON file (machine-readable) and one HTML
-// file (human-readable), each with an overall stats summary plus a
-// per-task breakdown.
+// Package report merges plan/apply output from every task into one JSON and HTML report per pipeline run.
 package report
 
 import (
@@ -23,9 +20,7 @@ const (
 	ModeApply Mode = "apply"
 )
 
-// TaskRun is what each `plan`/`apply` CLI invocation writes to
-// result-<task>.json; the `report` command reads one of these per task and
-// merges them.
+// TaskRun is what each plan/apply invocation writes to result-<task>.json; `report` merges them.
 type TaskRun struct {
 	Task    string        `json:"task"`
 	Mode    Mode          `json:"mode"`
@@ -34,9 +29,7 @@ type TaskRun struct {
 	Results []diff.Result `json:"results,omitempty"` // set when Mode == ModeApply
 }
 
-// RunOrigin records where a plan/result file came from, so apply can log
-// which plan it's acting on -- e.g. to spot a retried apply job replaying a
-// plan whose changes were already partly made.
+// RunOrigin records where a plan/result file came from, to spot a retried apply replaying a stale plan.
 type RunOrigin struct {
 	GeneratedAt time.Time `json:"generated_at"`
 	PipelineID  string    `json:"pipeline_id,omitempty"`
@@ -44,8 +37,7 @@ type RunOrigin struct {
 	CommitSHA   string    `json:"commit_sha,omitempty"`
 }
 
-// CurrentOrigin describes the running process, from GitLab CI's predefined
-// variables when present.
+// CurrentOrigin describes the running process from GitLab CI variables.
 func CurrentOrigin() *RunOrigin {
 	return &RunOrigin{
 		GeneratedAt: time.Now().UTC(),
@@ -89,8 +81,7 @@ func (s *Stats) merge(other Stats) {
 	s.Skipped += other.Skipped
 }
 
-// String renders a one-line stats summary, e.g.
-// "total=20 unchanged=15 drifted=4 applied=0 failed=1 skipped=0".
+// String renders a one-line stats summary, e.g. total=20 unchanged=15 drifted=4.
 func (s Stats) String() string {
 	return fmt.Sprintf("total=%d unchanged=%d drifted=%d applied=%d failed=%d skipped=%d",
 		s.Total, s.Unchanged, s.Drifted, s.Applied, s.Failed, s.Skipped)
@@ -118,10 +109,7 @@ type Report struct {
 	Tasks       []TaskReport `json:"tasks"`
 }
 
-// BuildTaskReport converts one TaskRun into a TaskReport (stats + entries).
-// It's the same conversion Merge does per task, exposed separately so the
-// CLI can print a table right after plan/apply -- in the job log, not just
-// in the final `report` job's artifact.
+// BuildTaskReport converts one TaskRun into a TaskReport; exposed so the CLI can print it after plan/apply.
 func BuildTaskReport(run TaskRun) TaskReport {
 	tr := TaskReport{Task: run.Task, Mode: run.Mode}
 	if run.Mode == ModePlan {
@@ -175,10 +163,7 @@ func (r Report) WriteJSON(path string) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// reportView is the shape the HTML template actually renders -- WriteHTML
-// derives it from Report so the template stays a dumb renderer (badge
-// classes, banner text, and the per-target-kind split are all decided in
-// Go, not in template logic).
+// reportView is what the HTML template renders; WriteHTML derives it from Report.
 type reportView struct {
 	GeneratedAt time.Time
 	Stats       Stats
@@ -246,11 +231,7 @@ func buildReportView(r Report) reportView {
 	return v
 }
 
-// reportBanner picks the top-of-page banner. A failure anywhere outranks
-// everything else; otherwise a report containing any plan-mode task is
-// flagged as not-yet-final (plan and apply results never mix within one
-// report in practice -- see runReport's glob fallback -- but this stays
-// correct even if they did).
+// reportBanner picks the banner: a failure outranks all, then plan-mode runs are flagged not final.
 func reportBanner(r Report) (class, text string) {
 	if r.Stats.Failed > 0 {
 		return "has-failures", fmt.Sprintf("✗ %d target(s) failed — review required", r.Stats.Failed)

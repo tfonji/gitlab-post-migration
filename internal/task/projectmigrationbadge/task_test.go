@@ -20,10 +20,7 @@ import (
 	"gitlab-post-migration/internal/gitlabclient"
 )
 
-// fakeInstance serves project badges for projects 1..3 and the raw badge SVG.
-//   - project 1: no badges
-//   - project 2: already has its own "AZDO Migrated Sept. 1, 2026" badge
-//   - project 3: only a badge inherited from its group with the same name
+// fakeInstance serves badges for projects 1..3 (none; its own; only one inherited from its group) and the raw SVG.
 type fakeInstance struct {
 	mu          sync.Mutex
 	imageExists bool

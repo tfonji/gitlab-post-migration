@@ -1,7 +1,4 @@
-// Package groupdefaultbranch implements the "group-default-branch-setting"
-// task: sets the default branch name new projects get when created inside
-// each top-level group going forward. It does not touch existing projects'
-// default branch — that's handled per project by defaultbranchrename.
+// Package groupdefaultbranch sets the default branch name for new projects in each top-level group.
 package groupdefaultbranch
 
 import (

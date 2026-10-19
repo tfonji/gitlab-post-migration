@@ -1,10 +1,4 @@
-// Package defaultbranchrename implements the "project-default-branch-rename"
-// task: for every project whose default branch isn't the desired name,
-// create that branch from the current default (if it doesn't already
-// exist), protect it (creating or updating the protection to match desired
-// push/merge access), and switch the project's default branch pointer to
-// it. A desired branch that already exists is used as it is, even when it
-// is behind or has diverged from the current default.
+// Package defaultbranchrename makes master the default branch: created if missing, used as is if present, protected.
 package defaultbranchrename
 
 import (
@@ -38,8 +32,7 @@ func Register(c *gitlabclient.Client) {
 
 func (t *Task) Name() string { return Name }
 
-// RequiresGroupMembership: protecting/updating a branch is refused (403) for
-// an admin token that isn't a project member (gitlab-org/gitlab#428273).
+// RequiresGroupMembership: GitLab refuses branch protection (403) for an admin who is not a project member (gitlab-org/gitlab#428273).
 func (t *Task) RequiresGroupMembership() bool { return true }
 
 func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Config) ([]diff.Diff, error) {
@@ -64,13 +57,7 @@ func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Conf
 		}
 		needsSwitch := proj.DefaultBranch != desired
 
-		// branchAction records what Apply should do about the branch
-		// itself: "create" (desired doesn't exist yet), "reuse" (it
-		// already exists AND its tip matches the current default's tip,
-		// e.g. a retry after a partial prior run), "adopt" (it already
-		// exists but its tip differs, e.g. an old, out-of-date master:
-		// it becomes the default as it is, nothing is merged or reset),
-		// or "" when no switch is needed at all.
+		// branchAction: "create", "reuse" (same tip), "adopt" (different tip, used as is), or "" when no switch is needed.
 		branchAction := ""
 		branchNote := ""
 		if needsSwitch {
@@ -176,10 +163,7 @@ func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config)
 
 		var actions []string
 
-		// Trust Plan's branch_action rather than re-deriving it here: Apply
-		// only acts on what was reviewed, and re-checking independently is
-		// exactly what let a pre-existing, diverged branch get silently
-		// reused and mislabeled "created" before this fix.
+		// Trust Plan's branch_action instead of re-deriving it: apply acts only on what was reviewed.
 		if needsSwitch {
 			if current == "" {
 				results = append(results, diff.Result{Target: d.Target, Status: diff.StatusFailed, Error: "diff missing current_default_branch detail"})
@@ -248,9 +232,7 @@ func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config)
 	return results, nil
 }
 
-// branchTip returns a branch's tip commit SHA, or "" if the branch has no
-// commit info for some reason (shouldn't happen for a real branch, but
-// avoids a nil-pointer panic rather than assuming).
+// branchTip returns a branch's tip SHA, or "" when it has no commit info.
 func branchTip(b *gitlab.Branch) string {
 	if b == nil || b.Commit == nil {
 		return ""
@@ -266,9 +248,7 @@ func shortSHA(b *gitlab.Branch) string {
 	return sha
 }
 
-// matchesProtection checks only push/merge access level -- allow_force_push
-// and code_owner_approval_required aren't configurable by this task yet, so
-// they're not part of the drift check.
+// matchesProtection checks only push/merge access level; force push and code owner approval are not configurable here.
 func matchesProtection(p *gitlab.ProtectedBranch, wantPush, wantMerge gitlab.AccessLevelValue) bool {
 	pushOK := false
 	for _, lvl := range p.PushAccessLevels {
@@ -321,10 +301,7 @@ func accessLevelFromString(level string) (gitlab.AccessLevelValue, error) {
 	}
 }
 
-// isNotFound checks for go-gitlab's sentinel gitlab.ErrNotFound, which
-// CheckResponse (gitlab.go) returns for EVERY HTTP 404 -- never a
-// *gitlab.ErrorResponse with status 404 (see the same fix in
-// protectedenvironment and gitlab-ci-bootstrap's bootstrap.go).
+// isNotFound matches gitlab.ErrNotFound, which every HTTP 404 returns.
 func isNotFound(err error) bool {
 	return errors.Is(err, gitlab.ErrNotFound)
 }

@@ -1,8 +1,4 @@
-// Command gitlab-post-migration reconciles a batch of already-migrated
-// GitLab projects/groups against a static desired-state baseline. It's
-// meant to be invoked entirely from GitLab CI jobs (see .gitlab-ci.yml):
-// one `discover`, then one `plan`/`apply` pair per task, then one `report`
-// that merges every task's output into a single pipeline-run report.
+// Command gitlab-post-migration reconciles migrated GitLab projects and groups against a desired-state baseline, driven by CI jobs.
 package main
 
 import (
@@ -29,9 +25,7 @@ import (
 	"gitlab-post-migration/internal/report"
 	"gitlab-post-migration/internal/task"
 
-	// Task implementations register themselves via their Register(...)
-	// constructor called from registerTasks below — imported here so the
-	// binary links them in.
+	// Task packages, imported so the binary links them in.
 	"gitlab-post-migration/internal/task/complianceframework"
 	"gitlab-post-migration/internal/task/defaultbranchrename"
 	"gitlab-post-migration/internal/task/groupdefaultbranch"
@@ -74,9 +68,7 @@ func main() {
 	}
 }
 
-// setupLogging sends structured logs to stderr (alongside the result
-// tables). LOG_LEVEL=debug additionally logs every successful API call;
-// the default (info) logs identity, run context, and every failed call.
+// setupLogging logs to stderr; LOG_LEVEL=debug also logs successful API calls.
 func setupLogging() {
 	level := slog.LevelInfo
 	if err := level.UnmarshalText([]byte(envOr("LOG_LEVEL", "info"))); err != nil {
@@ -85,8 +77,7 @@ func setupLogging() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
 }
 
-// newClient builds the API client and logs who it runs as, so every job log
-// starts with the identity and CI context behind the calls that follow.
+// newClient builds the API client and logs the identity and CI context.
 func newClient(ctx context.Context, gitlabURL, token string) (*gitlabclient.Client, error) {
 	c, err := gitlabclient.New(gitlabURL, token)
 	if err != nil {
@@ -120,8 +111,7 @@ func registerTasks(c *gitlabclient.Client) {
 	projectmigrationbadge.Register(c)
 }
 
-// runBadgeImage writes the badge SVG for a date; commit it to the badge image
-// repository before running project-migration-badge for that date.
+// runBadgeImage writes the badge SVG for a date.
 func runBadgeImage(args []string) error {
 	fs := flag.NewFlagSet("badge-image", flag.ExitOnError)
 	dateFlag := fs.String("date", "", "migration date, YYYY-MM-DD (default today, UTC)")
@@ -191,11 +181,7 @@ func runDiscover(args []string) error {
 	return writeJSON(*out, scope)
 }
 
-// runCleanup removes what would make later apply jobs fail (a linked
-// security policy project, the configured compliance framework) from every
-// top-level group in scope. It mutates immediately, and must run before the
-// plan jobs so they read the cleaned state. It processes every group even if
-// some fail, then fails the job so the pipeline doesn't proceed to plan.
+// runCleanup unlinks the policy project and removes the compliance framework per group before plan; any failure fails the job.
 func runCleanup(args []string) error {
 	fs := flag.NewFlagSet("cleanup", flag.ExitOnError)
 	gitlabURL := fs.String("gitlab-url", envOr("CI_SERVER_URL", "https://gitlab.com"), "GitLab base URL")
@@ -258,8 +244,7 @@ func runPlanOrApply(args []string, mode report.Mode) error {
 		*out = fmt.Sprintf("%s-%s.json", mode, *taskName)
 	}
 
-	// A cancelled CI job (SIGTERM) cancels in-flight API calls, so apply can
-	// still revert any temporary group membership before exiting.
+	// SIGTERM cancels in-flight calls so apply can still revert temporary membership.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	slog.Info("starting", "mode", mode, "task", *taskName)
@@ -309,16 +294,11 @@ func runPlanOrApply(args []string, mode report.Mode) error {
 	if werr := writeJSON(*out, run); werr != nil {
 		return errors.Join(err, werr)
 	}
-	// err here is a failed membership revert: the results are written, but
-	// the job must fail so someone removes the leftover membership.
+	// A failed membership revert still writes the results but fails the job.
 	return err
 }
 
-// applyWithMembership runs t.Apply, first granting the token user
-// Maintainer on every top-level group the drifted diffs belong to when the
-// task needs it, and always reverting that grant afterwards -- on success,
-// failure, panic, or a cancelled job. Results are returned even when only
-// the revert failed, so they still get written.
+// applyWithMembership grants Maintainer on the drifted groups if the task needs it and always reverts it.
 func applyWithMembership(ctx context.Context, c *gitlabclient.Client, t task.Task, diffs []diff.Diff, cfg *config.Config) (results []diff.Result, err error) {
 	req, ok := t.(task.GroupMembershipRequirer)
 	if !ok || !req.RequiresGroupMembership() {
@@ -335,8 +315,7 @@ func applyWithMembership(ctx context.Context, c *gitlabclient.Client, t task.Tas
 
 	grants, err := membership.Ensure(ctx, c, groupIDs)
 	defer func() {
-		// Fresh context: ctx may already be cancelled, and the revert
-		// matters most exactly then.
+		// Fresh context: ctx may be cancelled, and the revert matters most then.
 		revertCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		if rerr := membership.Revert(revertCtx, c, grants); rerr != nil {
@@ -350,8 +329,7 @@ func applyWithMembership(ctx context.Context, c *gitlabclient.Client, t task.Tas
 	return t.Apply(ctx, diffs, cfg)
 }
 
-// driftedGroupIDs returns the distinct top-level groups of the diffs apply
-// will act on.
+// driftedGroupIDs returns the distinct top-level groups of the diffs apply acts on.
 func driftedGroupIDs(diffs []diff.Diff) ([]int64, error) {
 	seen := map[int64]bool{}
 	var ids []int64
@@ -371,10 +349,7 @@ func driftedGroupIDs(diffs []diff.Diff) ([]int64, error) {
 	return ids, nil
 }
 
-// logPlanOrigin says which plan apply is about to act on. Retrying an apply
-// job replays the same plan artifact, so if an earlier attempt already made
-// some of its changes, the plan is stale -- the age and job here make that
-// visible, and the fix is re-running the plan job.
+// logPlanOrigin logs which plan apply uses; a retried apply replays a stale plan, so re-run the plan job.
 func logPlanOrigin(path string, o *report.RunOrigin) {
 	if o == nil {
 		slog.Warn("plan file has no origin info (produced by an older build)", "plan", path)
@@ -414,9 +389,7 @@ func runReport(args []string) error {
 		}
 	}
 
-	// Cleanup results are always included on top of whichever of the
-	// result/plan sets applies -- they must not count as "a result file
-	// exists" and hide the plan-only view.
+	// Cleanup results are always included, without hiding the plan-only view.
 	cleanupFiles, err := filepath.Glob("cleanup-*.json")
 	if err != nil {
 		return err

@@ -1,23 +1,17 @@
-# Desired-state baseline applied uniformly to every top-level group/project
-# resolved in a pipeline run. Edit and review like code -- this file *is*
-# the policy.
+# Desired-state baseline applied to every top-level group/project in a run; edit it like code.
 
 mr_policy:
-  # Security policy project linked to each top-level group's "merge request
-  # approval policy" (GitLab Security & Compliance > Policies), not the
-  # boolean group MR-approval settings.
+  # Security policy project (merge request approval policy) linked to each top-level group.
   security_policy_project_path: "dso-security-policy/mr-policy-1-approver-security-policy-project"
 
 compliance_framework:
-  # Created (if missing) or reconciled (if drifted) at each top-level group,
-  # then assigned to every project in that group.
+  # Created or reconciled at each top-level group, then assigned to its projects.
   name: "security-compliant"
   color: "#9400d3"
   description: "security compliance framework"
   pipeline_configuration_full_path: "compliance-framework-appsec.gitlab-ci.yml@compliance-framework/compliance-framework-appsec"
 
-# Group-level protected environments are keyed by deployment tier. Each is
-# protected the same way: deploy and approval restricted to Maintainer.
+# Group-level protected environments are keyed by deployment tier.
 protected_environments:
   - environment_name: production
     deploy_access_level: maintainer
@@ -27,9 +21,7 @@ protected_environments:
     deploy_access_level: maintainer
     approver_access_level: maintainer
     required_approval_count: 1
-  # Developers and Maintainers may deploy; the TechLib Approvers group approves.
-  # That group is shared into each top-level group first (as Reporter) if it
-  # isn't already, because a group approval rule needs the group to have access.
+  # Developers and Maintainers deploy; the TechLib Approvers group approves, shared in as Reporter first if needed.
   - environment_name: other
     deploy_access_level: developer
     required_approval_count: 1
@@ -41,17 +33,11 @@ group_default_branch:
 
 default_branch_rename:
   branch_name: master
-  # Applied when the branch is created/switched to default: no one but
-  # Maintainers can push or merge (no direct push for Developers, no
-  # force-push for anyone).
+  # Protection for the new default branch: only Maintainers push or merge, no force-push.
   protect_push_access_level: maintainer
   protect_merge_access_level: maintainer
 
-# Every migrated project gets a badge reading "AZDO Migrated <date>". The badge
-# picture is an SVG per date (made with `badge-image`) that must be committed to
-# a repository every user can read (internal visibility). By default that is the
-# project the pipeline runs in -- this tool's own repository -- on its default
-# branch; set image_project / image_ref only to use somewhere else.
+# Every migrated project gets an "AZDO Migrated <date>" badge; its SVG goes to this repo unless image_project/image_ref say otherwise.
 project_migration_badge:
   name: "AZDO Migrated"
   image_dir: assets

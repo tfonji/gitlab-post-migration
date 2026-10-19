@@ -16,8 +16,7 @@ func FormatDate(d time.Time) string {
 	return fmt.Sprintf("%s %d, %d", months[d.Month()], d.Day(), d.Year())
 }
 
-// ImageFileName is the SVG's file name for a date: one image per date, since
-// the date is part of the picture.
+// ImageFileName is the SVG file name for a date (one image per date).
 func ImageFileName(d time.Time) string {
 	return "azdo-migrated-" + d.Format("2006-01-02") + ".svg"
 }
@@ -35,8 +34,7 @@ func SVG(d time.Time) string {
 	date := FormatDate(d)
 	left := float64(len(labelText))*charWidth + 2*padding
 	right := float64(len(date))*charWidth + 2*padding
-	// Whole pixels, with the right half taking whatever the left leaves, so the
-	// two halves meet exactly.
+	// Whole pixels; the right half takes the remainder so the halves meet.
 	l := int(left)
 	total := int(left + right)
 	r := total - l

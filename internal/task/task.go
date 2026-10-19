@@ -1,5 +1,4 @@
-// Package task defines the plugin contract every post-migration setting
-// implements, plus the registry the CLI dispatches "--task=<name>" against.
+// Package task defines the contract each post-migration setting implements, plus the registry the CLI dispatches --task=<name> against.
 package task
 
 import (
@@ -13,31 +12,19 @@ import (
 	"gitlab-post-migration/internal/discovery"
 )
 
-// Task is implemented once per post-migration setting. Plan must be
-// side-effect free: it only reads live GitLab state and compares it to cfg.
-// Apply must only act on the diffs it's given (the ones produced by a prior
-// Plan, e.g. from an artifact), not recompute its own — that's what keeps
-// "plan then apply" honest: what you approve is what runs.
+// Task is one post-migration setting; Apply acts only on the diffs Plan produced, so what is approved is what runs.
 type Task interface {
-	// Name is the --task value and the pipeline job suffix, e.g.
-	// "project-default-branch-rename".
+	// Name is the --task value and job suffix, e.g. project-default-branch-rename.
 	Name() string
 
-	// Plan compares live state for every target in scope against cfg and
-	// returns one diff.Diff per target.
+	// Plan compares live state for every target in scope to cfg, returning one Diff per target.
 	Plan(ctx context.Context, scope discovery.Scope, cfg *config.Config) ([]diff.Diff, error)
 
-	// Apply reconciles exactly the diffs passed in (StatusDrifted ones do
-	// work; others pass through as Skipped/Unchanged) and returns one
-	// diff.Result per input diff.
+	// Apply reconciles the drifted diffs; others pass through, returning one Result per diff.
 	Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config) ([]diff.Result, error)
 }
 
-// GroupMembershipRequirer is implemented by tasks whose Apply calls APIs
-// that refuse an instance admin who isn't a member of the project (e.g. the
-// protected branches API). For those, the CLI grants the token user
-// Maintainer on every targeted top-level group for the duration of Apply
-// and reverts it afterwards (internal/membership).
+// GroupMembershipRequirer marks tasks whose Apply needs the token user to be a member (granted temporarily by internal/membership).
 type GroupMembershipRequirer interface {
 	RequiresGroupMembership() bool
 }
@@ -47,9 +34,7 @@ var (
 	registry = map[string]Task{}
 )
 
-// Register adds a task to the registry. Called from each task subpackage's
-// init(), so importing a task package for its side effect is enough to make
-// it selectable by name.
+// Register adds a task to the registry; each task package calls it so importing the package makes it selectable.
 func Register(t Task) {
 	mu.Lock()
 	defer mu.Unlock()

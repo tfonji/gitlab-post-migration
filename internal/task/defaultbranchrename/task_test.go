@@ -15,9 +15,7 @@ import (
 	"gitlab-post-migration/internal/gitlabclient"
 )
 
-// fakeProject serves the REST calls the task makes for project 1, whose
-// default branch is "main" (tip bbb). masterTip is "master"'s tip, or "" when
-// the branch doesn't exist.
+// fakeProject serves project 1 (default branch main, tip bbb); masterTip is master's tip, "" if absent.
 type fakeProject struct {
 	masterTip string
 

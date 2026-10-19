@@ -1,9 +1,4 @@
-// Package protectedenvironment implements the "group-protected-environment"
-// task: ensures each group-level protected environment from config (default
-// just "production"; e.g. production and staging) exists with deploy access
-// and approval both restricted to the configured access level (default
-// Maintainer). An environment can instead name an approver group; the task
-// then makes sure that group is shared with the top-level group first.
+// Package protectedenvironment protects group-level environments (production, staging, other), optionally approved by a shared group.
 package protectedenvironment
 
 import (
@@ -33,15 +28,12 @@ func Register(c *gitlabclient.Client) { task.Register(New(c)) }
 
 func (t *Task) Name() string { return Name }
 
-// desired is one environment's settings, resolved from config with defaults.
 type desired struct {
 	name      string
 	level     gitlab.AccessLevelValue // who may deploy
 	approvals int64
 
-	// approverGroup, when non-zero, is the group whose members approve. Then
-	// ensureShared says the top-level group must be shared with it, at
-	// shareLevel or better.
+	// approverGroup, if set, approves; ensureShared requires the top-level group be shared with it at shareLevel or better.
 	approverGroup int64
 	ensureShared  bool
 	shareLevel    gitlab.AccessLevelValue
@@ -111,8 +103,7 @@ func (t *Task) planEnvironment(ctx context.Context, g discovery.Group, target di
 			detail["share"] = true
 			parts = append(parts, fmt.Sprintf("group %d is not shared with this group yet (will share it as %s)", env.approverGroup, accessLevelName(env.shareLevel)))
 		case level < env.shareLevel:
-			// GitLab has no "change level" call for a group share: it is
-			// removed and shared again at the right level.
+			// GitLab cannot change a group share's level: remove it and share again.
 			detail["share"] = true
 			detail["previous_share_level"] = int64(level)
 			parts = append(parts, fmt.Sprintf("group %d is shared with this group as %s, below the %s needed to approve (will re-share it as %s)",
@@ -139,8 +130,7 @@ func (t *Task) planEnvironment(ctx context.Context, g discovery.Group, target di
 	return diff.Diff{Target: target, Status: diff.StatusDrifted, Description: strings.Join(parts, "; "), Detail: detail}
 }
 
-// sharedLevel returns the access level the group is shared with the target
-// group at, and whether it is shared at all.
+// sharedLevel reports the level the group is shared at, and whether it is shared.
 func (t *Task) sharedLevel(ctx context.Context, groupID, sharedGroupID int64) (level gitlab.AccessLevelValue, shared bool, err error) {
 	g, _, err := t.Client.REST.Groups.GetGroup(groupID, nil, gitlab.WithContext(ctx))
 	if err != nil {
@@ -187,8 +177,7 @@ func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config)
 
 		var actions []string
 
-		// The share comes first: the approval rule below is refused for a
-		// group that has no access to this group. If it fails, don't try.
+		// Share first: the approval rule is refused for a group without access.
 		if share {
 			did, err := t.share(ctx, d.Target.ID, env, gitlab.AccessLevelValue(previous), reshare)
 			if err != nil {
@@ -206,15 +195,7 @@ func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config)
 		}
 
 		if protect {
-			// ProtectGroupEnvironment is also the update path: protecting an
-			// already-protected environment with new settings replaces them.
-			//
-			// The top-level RequiredApprovalCount field is deprecated by GitLab
-			// (a real apply run hit: "422 Parameter 'required_approval_count' is
-			// deprecated and shouldn't be used", linking
-			// https://gitlab.com/groups/gitlab-org/-/epics/9662) -- the required
-			// count now belongs solely on each ApprovalRules entry, which this
-			// already sets.
+			// ProtectGroupEnvironment also updates; required_approval_count goes on the rule, the top-level field is deprecated.
 			rule := &gitlab.GroupEnvironmentApprovalRuleOptions{AccessLevel: gitlab.Ptr(env.level), RequiredApprovalCount: gitlab.Ptr(env.approvals)}
 			if env.approverGroup != 0 {
 				rule = &gitlab.GroupEnvironmentApprovalRuleOptions{GroupID: gitlab.Ptr(env.approverGroup), RequiredApprovalCount: gitlab.Ptr(env.approvals)}
@@ -236,12 +217,7 @@ func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config)
 	return results, nil
 }
 
-// share makes the approver group shared with the target group at env.shareLevel.
-// did is false when nothing needed doing: it was already shared well enough
-// since the plan (an earlier environment in this run may have done it).
-//
-// A share that is too low is removed and shared again. Should the new share
-// fail, the old one is put back so its members are not left without access.
+// share shares the approver group at env.shareLevel; a lower existing share is removed and redone, and restored if that fails.
 func (t *Task) share(ctx context.Context, groupID int64, env desired, previous gitlab.AccessLevelValue, reshare bool) (did bool, err error) {
 	level, shared, err := t.sharedLevel(ctx, groupID, env.approverGroup)
 	if err != nil {
@@ -276,10 +252,7 @@ func (t *Task) share(ctx context.Context, groupID int64, env desired, previous g
 	return true, nil
 }
 
-// matches deliberately ignores current.RequiredApprovalCount (the
-// deprecated top-level field, see the comment in Apply) and checks only
-// each approval rule's own RequiredApprovalCount, which is what this task
-// actually writes.
+// matches compares each approval rule's own count, not the deprecated top-level field.
 func matches(current *gitlab.GroupProtectedEnvironment, env desired) bool {
 	deployOK := false
 	for _, lvl := range current.DeployAccessLevels {
@@ -334,12 +307,7 @@ func accessLevelFromString(level string) (gitlab.AccessLevelValue, error) {
 	}
 }
 
-// isNotFound checks for go-gitlab's sentinel gitlab.ErrNotFound, which
-// CheckResponse (gitlab.go) returns for EVERY HTTP 404 -- never a
-// *gitlab.ErrorResponse with status 404. An earlier version of this
-// function checked for *ErrorResponse instead, which never matched, so
-// every "not protected yet" 404 (the normal, expected state before this
-// task has ever run) was misreported as a hard failure instead of drift.
+// isNotFound matches gitlab.ErrNotFound, which every HTTP 404 returns.
 func isNotFound(err error) bool {
 	return errors.Is(err, gitlab.ErrNotFound)
 }

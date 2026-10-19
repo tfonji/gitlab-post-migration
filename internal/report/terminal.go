@@ -22,9 +22,7 @@ const (
 
 const ruleWidth = 70
 
-// Terminal renders plan/apply output for job logs and consoles: a colored,
-// symbol-prefixed view grouped by task and target kind, with targets that
-// need no attention collapsed into a single count line.
+// Terminal renders plan/apply output for job logs: colored and symbol-prefixed, with targets needing no attention collapsed to a count.
 type Terminal struct {
 	w     io.Writer
 	color bool
@@ -34,10 +32,7 @@ func NewTerminal(w io.Writer, color bool) *Terminal {
 	return &Terminal{w: w, color: color}
 }
 
-// UseColor decides whether ANSI color should be emitted to f: never when
-// NO_COLOR is set, always when FORCE_COLOR is set or under GitLab CI (whose
-// job log viewer renders ANSI even though stderr isn't a TTY there), and
-// otherwise only when f is an interactive terminal.
+// UseColor: never with NO_COLOR, always with FORCE_COLOR or under GitLab CI, otherwise only on a TTY.
 func UseColor(f *os.File) bool {
 	if os.Getenv("NO_COLOR") != "" {
 		return false
@@ -49,8 +44,7 @@ func UseColor(f *os.File) bool {
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
-// WriteTask prints one task's result -- called right after plan/apply so a
-// run's effect is visible in that job's log without opening the report.
+// WriteTask prints one task's result right after plan/apply, so the job log shows its effect.
 func (t *Terminal) WriteTask(tr TaskReport) {
 	t.println("")
 	t.println(t.paint(ansiBold+ansiCyan, fmt.Sprintf("%s (%s)", strings.ToUpper(tr.Task), tr.Mode)))
@@ -61,8 +55,7 @@ func (t *Terminal) WriteTask(tr TaskReport) {
 	t.println("")
 }
 
-// WriteReport prints every task of a merged Report followed by one overall
-// summary line, for the `report` job's log.
+// WriteReport prints every task of a merged Report plus one overall summary, for the report job.
 func (t *Terminal) WriteReport(r Report) {
 	t.println("")
 	t.println(t.paint(ansiBold+ansiCyan, "GITLAB POST-MIGRATION REPORT"))

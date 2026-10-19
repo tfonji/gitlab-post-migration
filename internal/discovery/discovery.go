@@ -9,13 +9,7 @@ import (
 	"gitlab-post-migration/internal/gitlabclient"
 )
 
-// Resolve turns pipeline input (group IDs and/or explicit project IDs) into
-// a Scope: every target project, plus the deduplicated top-level groups they
-// belong to. All projects under each group (recursing subgroups) are assumed
-// migrated and in scope — see design discussion, no marker/topic filtering
-// for v1, archived projects are skipped. A project reachable more than once
-// (a group and one of its subgroups both listed, or a project ID inside a
-// listed group) is included once.
+// Resolve turns group and project IDs into a Scope: target projects plus their top-level groups, each once.
 func Resolve(ctx context.Context, c *gitlabclient.Client, groupIDs []int64, projectIDs []int64) (Scope, error) {
 	var projects []*gitlab.Project
 	seen := map[int64]bool{}
@@ -76,9 +70,7 @@ func Resolve(ctx context.Context, c *gitlabclient.Client, groupIDs []int64, proj
 		})
 	}
 
-	// A group named directly is a target even when it holds no (unarchived)
-	// project: the group-level tasks still apply to its top-level group, so a
-	// subgroup passed in resolves up to the group that owns it.
+	// A group named directly is a target even without projects, so a subgroup resolves up to its top-level group.
 	for _, groupID := range groupIDs {
 		if _, err := topLevelOfGroup(ctx, c, groupID, topLevelCache); err != nil {
 			return Scope{}, fmt.Errorf("resolving top-level group for group %d: %w", groupID, err)
@@ -118,11 +110,7 @@ func topLevelOfGroup(ctx context.Context, c *gitlabclient.Client, groupID int64,
 	}
 }
 
-// resolveTopLevelGroup walks a namespace's ancestry up to the group with no
-// parent. namespaceID/parentID/fullPath are the project's own immediate
-// namespace (cheap: already on the Project payload); ancestors beyond that
-// require a GetGroup call each, so results are cached across projects that
-// share a namespace.
+// resolveTopLevelGroup walks a namespace up to its top-level group, caching across projects that share a namespace.
 func resolveTopLevelGroup(ctx context.Context, c *gitlabclient.Client, namespaceID, parentID int64, fullPath string, cache map[int64]Group) (Group, error) {
 	if g, ok := cache[namespaceID]; ok {
 		return g, nil

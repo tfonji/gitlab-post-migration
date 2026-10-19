@@ -31,10 +31,7 @@ discover:
     paths: [projects.json]
     expire_in: 1 day
 
-# Runs before every plan job: unlinks the security policy project and removes
-# the compliance framework from each group, because leaving them in place can
-# make apply jobs fail. Plans wait for it (needs) so they read the cleaned
-# state, and a failure here stops the pipeline before anything is planned.
+# Runs before every plan: unlinks the policy project and removes the compliance framework, which would break apply.
 cleanup:
   stage: cleanup
   needs: ["discover"]
@@ -69,11 +66,7 @@ plan:group-mr-approval-policy:
   <<: *plan
   variables: { TASK: "group-mr-approval-policy" }
 
-# Must run after every other apply job -- GitLab treats `needs` on a manual
-# job as auto-skip-if-not-triggered (since 13.12), so this job only becomes
-# triggerable once all four of these have been triggered and succeeded; if
-# any of them is never run in a given pipeline, this job is auto-skipped
-# rather than becoming available standalone.
+# Runs last: `needs` on a manual job auto-skips it unless all four applies were triggered and succeeded.
 apply:group-mr-approval-policy:
   <<: *apply
   needs:

@@ -1,16 +1,4 @@
-// Package projectmigrationbadge implements the "project-migration-badge"
-// task: every migrated project gets a badge reading "AZDO Migrated <date>",
-// so anyone landing on the project can see it came over from Azure DevOps.
-//
-// The badge picture is a static SVG that contains the date, so there is one
-// image per date. It lives in a repository every user can read. When the
-// image for the date is missing, Apply commits it to that repository's branch
-// before adding any badge that points at it (the plan says so; the
-// badge-image command makes the same file by hand). The badge has to link
-// somewhere, so it links to the project itself.
-//
-// A project that already has a badge by this name is left alone, whatever its
-// date: the date records when it was migrated, and a later run must not move it.
+// Package projectmigrationbadge adds an "AZDO Migrated <date>" badge to each migrated project.
 package projectmigrationbadge
 
 import (
@@ -33,8 +21,7 @@ import (
 
 const Name = "project-migration-badge"
 
-// dateEnv optionally pins the migration date (YYYY-MM-DD); otherwise it is
-// today, UTC.
+// dateEnv optionally pins the migration date (YYYY-MM-DD); default is today, UTC.
 const dateEnv = "MIGRATION_DATE"
 
 type Task struct {
@@ -74,9 +61,7 @@ func (t *Task) migrationDate() (time.Time, error) {
 	return time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, time.UTC), nil
 }
 
-// imageProject is the project holding the badge images: the configured one,
-// else the project this pipeline runs in (CI_PROJECT_PATH), which is where this
-// tool's own repository, and so `badge-image`'s output, lives.
+// imageProject is the configured image project, else the pipeline's own (CI_PROJECT_PATH).
 func imageProject(cfg *config.Config) string {
 	if p := strings.Trim(cfg.ProjectMigrationBadge.ImageProject, "/"); p != "" {
 		return p
@@ -84,9 +69,7 @@ func imageProject(cfg *config.Config) string {
 	return os.Getenv("CI_PROJECT_PATH")
 }
 
-// imageRef is the branch the images are read from: the configured one, else the
-// project's default branch (CI_DEFAULT_BRANCH), else "master". It must be a
-// branch that stays, not the feature branch a pipeline happens to run on.
+// imageRef is the configured branch, else the default branch, else master; never a feature branch.
 func imageRef(cfg *config.Config) string {
 	if r := cfg.ProjectMigrationBadge.ImageRef; r != "" {
 		return r
@@ -164,10 +147,7 @@ func (t *Task) listBadges(ctx context.Context, projectID int64) ([]*gitlab.Proje
 	}
 }
 
-// ownBadge finds the project's own badge (not one inherited from a group)
-// whose name starts with the configured name, ignoring case and surrounding
-// spaces. Any date after the name matches: the date records when the project
-// was migrated and must not move.
+// ownBadge finds the project's own badge by name prefix (case-insensitive, any date), ignoring group-inherited ones.
 func ownBadge(badges []*gitlab.ProjectBadge, name string) *gitlab.ProjectBadge {
 	want := strings.ToLower(strings.TrimSpace(name))
 	for _, b := range badges {
@@ -178,8 +158,7 @@ func ownBadge(badges []*gitlab.ProjectBadge, name string) *gitlab.ProjectBadge {
 	return nil
 }
 
-// imageExists reports whether the badge SVG is in the repository, once per run.
-// An error means it could not be determined (not that it is missing).
+// imageExists reports whether the badge SVG is in the repository; an error means unknown, not missing.
 func (t *Task) imageExists(ctx context.Context, project, path, ref string) (bool, error) {
 	_, _, err := t.Client.REST.RepositoryFiles.GetRawFile(project, path, &gitlab.GetRawFileOptions{Ref: gitlab.Ptr(ref)}, gitlab.WithContext(ctx))
 	switch {
@@ -191,9 +170,7 @@ func (t *Task) imageExists(ctx context.Context, project, path, ref string) (bool
 	return false, fmt.Errorf("checking badge image %s in %s: %v", path, project, err)
 }
 
-// ensureImage commits the badge SVG for a date to the image repository unless it
-// is already there, once per run. It is safe to run twice at the same time: if
-// the other run wins, the file exists and that is all that is needed.
+// ensureImage commits the dated SVG unless it exists, once per run, tolerating a parallel run.
 func (t *Task) ensureImage(ctx context.Context, project, ref, path, dateStr string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -254,9 +231,7 @@ func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config)
 			}
 		}
 
-		// The plan may be older than another run: re-check right before adding,
-		// so a project that got its badge in the meantime keeps that one (and
-		// its date) instead of getting a second.
+		// Re-check just before adding: another run may have added the badge since the plan.
 		existing, err := t.listBadges(ctx, d.Target.ID)
 		if err != nil {
 			results = append(results, diff.Result{Target: d.Target, Status: diff.StatusFailed, Error: fmt.Sprintf("listing badges: %v", err)})

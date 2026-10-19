@@ -10,9 +10,7 @@ import (
 	"gitlab-post-migration/internal/gitlabclient"
 )
 
-// fakeInstance: group 20 "acme" (top level) > group 30 "acme/team" (subgroup)
-// > group 40 "acme/team/deep". Project 100 lives in acme/team; groups 30 and
-// 40 hold no projects of their own otherwise.
+// fakeInstance: group 20 acme > 30 acme/team > 40 acme/team/deep; project 100 lives in acme/team.
 func fakeInstance() http.Handler {
 	groups := map[string]map[string]any{
 		"/api/v4/groups/20": {"id": 20, "full_path": "acme", "parent_id": nil},

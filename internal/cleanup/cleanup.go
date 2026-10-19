@@ -1,22 +1,4 @@
-// Package cleanup clears the group-level state that makes later apply jobs
-// fail -- a linked security policy project, and the configured compliance
-// framework -- so the apply tasks can set both up again from a clean slate.
-//
-// Unlike a task, cleanup acts immediately: it runs as its own pipeline job
-// BEFORE every plan job, so each plan reads the already-cleaned state and
-// what a human later approves is exactly what apply runs.
-//
-// Mutation shapes were verified against GitLab's Ruby source:
-//   - securityPolicyProjectUnassign: ee/app/graphql/mutations/security_policy/
-//     unassign_security_policy_project.rb (fullPath: String).
-//   - destroyComplianceFramework: .../mutations/compliance_management/
-//     frameworks/destroy.rb (id: ComplianceManagementFrameworkID!); its service
-//     refuses to delete the group's default framework ("Cannot delete the
-//     default framework"), hence the unset-default step first.
-//   - updateComplianceFramework with params.default=false unsets the default:
-//     .../compliance_management/frameworks/update_service.rb.
-//
-// None of these has been exercised against a live instance yet.
+// Package cleanup unlinks the security policy project and removes the compliance framework before plan.
 package cleanup
 
 import (
@@ -112,10 +94,7 @@ type destroyFrameworkResponse struct {
 	} `json:"destroyComplianceFramework"`
 }
 
-// Run cleans every top-level group in scope and returns one result per
-// check: Applied when something was removed, Unchanged when there was
-// nothing to remove, Failed when a call errored. A failure on one group
-// doesn't stop the others.
+// Run cleans every top-level group, one result per check; one group failing does not stop the others.
 func Run(ctx context.Context, c GraphQLClient, scope discovery.Scope, cfg *config.Config) ([]diff.Result, error) {
 	frameworkName := cfg.ComplianceFramework.Name
 	if frameworkName == "" {
