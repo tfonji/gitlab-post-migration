@@ -29,8 +29,8 @@ import (
 	"gitlab-post-migration/internal/task/complianceframework"
 	"gitlab-post-migration/internal/task/defaultbranchrename"
 	"gitlab-post-migration/internal/task/groupdefaultbranch"
+	"gitlab-post-migration/internal/task/groupmigrationbadge"
 	"gitlab-post-migration/internal/task/mrapprovalpolicy"
-	"gitlab-post-migration/internal/task/projectmigrationbadge"
 	"gitlab-post-migration/internal/task/protectedenvironment"
 )
 
@@ -108,7 +108,7 @@ func registerTasks(c *gitlabclient.Client) {
 	protectedenvironment.Register(c)
 	groupdefaultbranch.Register(c)
 	complianceframework.Register(c)
-	projectmigrationbadge.Register(c)
+	groupmigrationbadge.Register(c)
 }
 
 // runBadgeImage writes the badge SVG into a directory.
@@ -118,7 +118,7 @@ func runBadgeImage(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	path, err := projectmigrationbadge.WriteImage(*dir)
+	path, err := groupmigrationbadge.WriteImage(*dir)
 	if err != nil {
 		return err
 	}

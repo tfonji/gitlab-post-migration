@@ -18,7 +18,7 @@ type Config struct {
 	GroupDefaultBranch    GroupDefaultBranch     `yaml:"group_default_branch"`
 	DefaultBranchRename   DefaultBranchRename    `yaml:"default_branch_rename"`
 
-	ProjectMigrationBadge ProjectMigrationBadge `yaml:"project_migration_badge"`
+	GroupMigrationBadge GroupMigrationBadge `yaml:"group_migration_badge"`
 }
 
 // MRPolicy names the security policy project linked to each top-level group.
@@ -67,8 +67,8 @@ func (c *Config) ProtectedEnvironmentList() []ProtectedEnvironment {
 	return []ProtectedEnvironment{c.ProtectedEnvironment}
 }
 
-// ProjectMigrationBadge configures the "AZDO Migrated" badge; the optional fields say where its SVG is read from.
-type ProjectMigrationBadge struct {
+// GroupMigrationBadge configures the "AZDO Migrated" badge; the optional fields say where its SVG is read from.
+type GroupMigrationBadge struct {
 	Name         string `yaml:"name"`          // "AZDO Migrated"
 	ImageProject string `yaml:"image_project"` // default: the pipeline's own project
 	ImageRef     string `yaml:"image_ref"`     // default: the default branch, else "master"

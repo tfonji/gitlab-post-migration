@@ -1,4 +1,4 @@
-package projectmigrationbadge
+package groupmigrationbadge
 
 import (
 	"fmt"

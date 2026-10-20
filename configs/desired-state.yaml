@@ -37,6 +37,6 @@ default_branch_rename:
   protect_push_access_level: maintainer
   protect_merge_access_level: maintainer
 
-# Every migrated project gets an "AZDO Migrated" badge; assets/azdo-migrated.svg must be on this repo's default branch (internal repo).
-project_migration_badge:
+# Every top-level group gets an "AZDO Migrated" badge (shown on all its projects); assets/azdo-migrated.svg must be on this repo's default branch (internal repo).
+group_migration_badge:
   name: "AZDO Migrated"

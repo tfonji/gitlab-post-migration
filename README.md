@@ -27,7 +27,7 @@ One task per pipeline job, each independently plan-then-apply:
 | `group-protected-environment` | top-level group | protects the `production`, `staging` and `other` environment tiers (`protected_environments` in the desired state): production and staging deploy + approval restricted to Maintainer; `other` deployable by Developers and Maintainers and approved by the TechLib Approvers group (id 23328), which is first shared into the top-level group as Reporter if it isn't already (an existing share below Reporter is removed and re-shared as Reporter) |
 | `group-default-branch-setting` | top-level group | sets the default branch name for *new* projects created in the group going forward |
 | `project-default-branch-rename` | project | if the project's default branch isn't `master`, creates `master` from the current default (an existing `master` is used as it is, even if it is behind or has diverged), protects it (push/merge restricted to Maintainer), and switches the project's default branch pointer to it -- also fixes protection alone if `master` is already default but unprotected/misconfigured |
-| `project-migration-badge` | project | adds a badge reading "AZDO Migrated <date>" (e.g. "AZDO Migrated Oct. 19, 2026") to every migrated project; the badge links to the project itself, and a project that already has one keeps its original date |
+| `group-migration-badge` | top-level group | adds an "AZDO Migrated" badge to the group, which its projects and subgroups show, and removes the exact project-level copy; a group that already has one is left alone |
 
 ## Pipeline flow
 
@@ -95,15 +95,22 @@ export GITLAB_TOKEN=...
 
 ## Migration badge
 
-`project-migration-badge` adds an "AZDO Migrated" badge to each migrated project.
+`group-migration-badge` adds an "AZDO Migrated" badge to each top-level group. GitLab
+shows a group badge on the group page and on every project and subgroup under it.
 
 - **Image.** `assets/azdo-migrated.svg` in this repository, on its default branch.
   By default the pipeline reads it from the project it runs in (`CI_PROJECT_PATH`);
-  `project_migration_badge.image_project` / `image_ref` / `image_dir` override that.
+  `group_migration_badge.image_project` / `image_ref` / `image_dir` override that.
   `./bin/gitlab-post-migration badge-image --out assets` rewrites the file.
 - **Visibility.** The repository must be readable by every user (internal), or the
   badge shows as a broken image.
 - **Missing image.** If the file is not on that branch, the plan fails for every
-  project that needs a badge and nothing is added.
-- **Link.** GitLab requires one, so the badge links to the project itself.
-- **Re-runs.** A project that already has an "AZDO Migrated" badge is left alone.
+  group that needs a badge and nothing is added.
+- **Link.** GitLab requires one, so the badge links to the group itself.
+- **Re-runs.** A group that already has an "AZDO Migrated" badge is left alone.
+- **Clean-up.** A project that has this exact badge itself (same name and same image
+  as the group badge, so not a lookalike and not the group's own copy) has it
+  removed, but only once its group has the badge. If the group badge could not be
+  added, the project badges stay.
+- **Scope.** The badge covers everything under the group, including projects
+  created natively in GitLab later; it is not limited to migrated projects.

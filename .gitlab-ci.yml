@@ -110,17 +110,18 @@ apply:project-default-branch-rename:
   needs: [ "plan:project-default-branch-rename"]
   variables: { TASK: "project-default-branch-rename" }
 
-plan:project-migration-badge:
+plan:group-migration-badge:
   <<: *plan
-  variables: { TASK: "project-migration-badge" }
+  variables: { TASK: "group-migration-badge" }
 
-apply:project-migration-badge:
+apply:group-migration-badge:
   <<: *apply
-  needs: [ "plan:project-migration-badge"]
-  variables: { TASK: "project-migration-badge" }
+  needs: [ "plan:group-migration-badge"]
+  variables: { TASK: "group-migration-badge" }
 
 report:
   stage: report
+  allow_failure: true
   needs:
     - "discover"
     - "cleanup"
@@ -129,13 +130,13 @@ report:
     - { job: "plan:group-protected-environment", optional: true }
     - { job: "plan:group-default-branch-setting", optional: true }
     - { job: "plan:project-default-branch-rename", optional: true }
-    - { job: "plan:project-migration-badge", optional: true }
+    - { job: "plan:group-migration-badge", optional: true }
     - { job: "apply:group-mr-approval-policy", optional: true }
     - { job: "apply:group-compliance-framework", optional: true }
     - { job: "apply:group-protected-environment", optional: true }
     - { job: "apply:group-default-branch-setting", optional: true }
     - { job: "apply:project-default-branch-rename", optional: true }
-    - { job: "apply:project-migration-badge", optional: true }
+    - { job: "apply:group-migration-badge", optional: true }
   script:
     - ./bin/post-migration/post-migration-linux-amd64 report --in="result-*.json" --json-out=report.json --html-out=report.html
   artifacts:
