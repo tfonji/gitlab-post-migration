@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="105" height="20" role="img" aria-label="AZDO Migrated">
+  <title>AZDO Migrated</title>
+  <linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
+  <clipPath id="r"><rect width="105" height="20" rx="3" fill="#fff"/></clipPath>
+  <g clip-path="url(#r)">
+    <rect width="105" height="20" fill="#0078d4"/>
+    <rect width="105" height="20" fill="url(#s)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
+    <text x="52" y="15" fill="#010101" fill-opacity=".3">AZDO Migrated</text>
+    <text x="52" y="14">AZDO Migrated</text>
+  </g>
+</svg>

@@ -15,9 +15,6 @@ variables:
     value: ""
   CONFIG_FILE:
     value: "configs/desired-state.yaml"
-  MIGRATION_DATE:
-    description: "Date on the 'AZDO Migrated' badge, YYYY-MM-DD. Leave blank for today (UTC). The matching SVG must already be committed (badge-image)."
-    value: ""
 
 workflow:
   rules:

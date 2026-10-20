@@ -95,25 +95,15 @@ export GITLAB_TOKEN=...
 
 ## Migration badge
 
-`project-migration-badge` adds an "AZDO Migrated <date>" badge to each project.
-The date is part of the picture, so there is one SVG per date.
+`project-migration-badge` adds an "AZDO Migrated" badge to each migrated project.
 
-- **Created by the pipeline.** If `assets/azdo-migrated-<date>.svg` is not yet in
-  the image repository, the plan says so and `apply` commits it (message ends
-  `[skip ci]`) to the repository's default branch once, before adding any badge.
-  By default the image repository is the project the pipeline runs in
-  (`CI_PROJECT_PATH`) on its default branch; `project_migration_badge.image_project`
-  / `image_ref` override that.
-- **Needs push access.** The token's user must be allowed to push to that branch
-  (protected branch "Allowed to push": Maintainers; no code-owner approval
-  requirement, no blocking push rule or security policy). If the commit is
-  refused, no badge is added and each project reports why. To avoid touching
-  `master`, set `project_migration_badge.image_ref` to a branch such as
-  `badge-images`: it is created from the default branch when missing, and the
-  badges point at it. That branch must not be protected against pushes either.
-- **Visibility.** The repository must be readable by every user (internal), or
-  the badge shows as a broken image.
-- **Date.** Today (UTC), or `MIGRATION_DATE` (YYYY-MM-DD). A project that already
-  has an "AZDO Migrated" badge keeps it, whatever its date.
-- **By hand.** `./bin/gitlab-post-migration badge-image --date 2026-10-19 --out assets`
-  writes the same SVG, if you prefer to commit it yourself.
+- **Image.** `assets/azdo-migrated.svg` in this repository, on its default branch.
+  By default the pipeline reads it from the project it runs in (`CI_PROJECT_PATH`);
+  `project_migration_badge.image_project` / `image_ref` / `image_dir` override that.
+  `./bin/gitlab-post-migration badge-image --out assets` rewrites the file.
+- **Visibility.** The repository must be readable by every user (internal), or the
+  badge shows as a broken image.
+- **Missing image.** If the file is not on that branch, the plan fails for every
+  project that needs a badge and nothing is added.
+- **Link.** GitLab requires one, so the badge links to the project itself.
+- **Re-runs.** A project that already has an "AZDO Migrated" badge is left alone.

@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 
@@ -24,14 +23,9 @@ import (
 type fakeInstance struct {
 	mu          sync.Mutex
 	imageExists bool
-	denyCommit  bool            // refuse creating the image file (branch protection)
-	branches    map[string]bool // branches that exist in the image repo
-	commitRace  bool            // refuse once with "already exists", having just made it exist
-	files       []map[string]any
-	order       []string // "file", "badge" in call order
-	// badgesAfterFirstAdd makes project 1 report the badges that were added.
-	badgesAfterFirstAdd bool
-	added               []map[string]string // badges added: project -> body
+	// afterAdd makes every project report the badges added so far.
+	afterAdd bool
+	added    []map[string]string
 }
 
 func (f *fakeInstance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -43,49 +37,26 @@ func (f *fakeInstance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(v)
 	}
 	path := r.URL.Path
+	projectID := func() string {
+		return strings.TrimSuffix(strings.TrimPrefix(path, "/api/v4/projects/"), "/badges")
+	}
 	switch {
-	case strings.HasSuffix(path, "/repository/files/assets/azdo-migrated-2026-10-19.svg/raw") ||
-		strings.HasSuffix(path, "/repository/files/assets%2Fazdo-migrated-2026-10-19.svg/raw"):
+	case strings.HasSuffix(path, "/repository/files/assets/azdo-migrated.svg/raw"):
 		if !f.imageExists {
 			http.NotFound(w, r)
 			return
 		}
 		w.Header().Set("Content-Type", "image/svg+xml")
 		_, _ = w.Write([]byte("<svg/>"))
-	case r.Method == http.MethodGet && strings.Contains(path, "/repository/branches/"):
-		name := path[strings.LastIndex(path, "/")+1:]
-		if f.branches != nil && !f.branches[name] {
-			http.NotFound(w, r)
-			return
-		}
-		reply(200, map[string]any{"name": name})
-	case r.Method == http.MethodGet && path == "/api/v4/projects/tools/badges":
-		reply(200, map[string]any{"id": 50, "default_branch": "master"})
-	case r.Method == http.MethodPost && strings.HasSuffix(path, "/repository/files/assets/azdo-migrated-2026-10-19.svg"):
-		if f.denyCommit {
-			reply(400, map[string]any{"message": "You are not allowed to push into this branch"})
-			return
-		}
-		if f.commitRace {
-			f.commitRace, f.imageExists = false, true
-			reply(400, map[string]any{"message": "A file with this name already exists"})
-			return
-		}
-		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		f.files = append(f.files, body)
-		f.order = append(f.order, "file")
-		f.imageExists = true
-		reply(201, map[string]any{"file_path": "assets/azdo-migrated-2026-10-19.svg", "branch": body["branch"]})
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/api/v4/projects/") && strings.HasSuffix(path, "/badges"):
-		switch strings.TrimSuffix(strings.TrimPrefix(path, "/api/v4/projects/"), "/badges") {
+		switch projectID() {
 		case "2":
-			reply(200, []map[string]any{{"id": 7, "name": "AZDO Migrated Sept. 1, 2026", "kind": "project"}})
+			reply(200, []map[string]any{{"id": 7, "name": "AZDO Migrated", "kind": "project"}})
 		case "3":
-			reply(200, []map[string]any{{"id": 8, "name": "AZDO Migrated Aug. 2, 2026", "kind": "group"}})
+			reply(200, []map[string]any{{"id": 8, "name": "AZDO Migrated", "kind": "group"}})
 		default:
 			existing := []map[string]any{}
-			if f.badgesAfterFirstAdd {
+			if f.afterAdd {
 				for _, a := range f.added {
 					existing = append(existing, map[string]any{"id": 99, "name": a["name"], "kind": "project"})
 				}
@@ -95,16 +66,13 @@ func (f *fakeInstance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/api/v4/projects/") && strings.HasSuffix(path, "/badges"):
 		var body map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		body["project"] = strings.TrimSuffix(strings.TrimPrefix(path, "/api/v4/projects/"), "/badges")
+		body["project"] = projectID()
 		f.added = append(f.added, body)
-		f.order = append(f.order, "badge")
 		reply(201, map[string]any{"id": 99, "name": body["name"]})
 	default:
 		http.NotFound(w, r)
 	}
 }
-
-var oct19 = time.Date(2026, 10, 19, 15, 0, 0, 0, time.UTC)
 
 func newTask(t *testing.T, f *fakeInstance) (*Task, string) {
 	t.Helper()
@@ -114,12 +82,9 @@ func newTask(t *testing.T, f *fakeInstance) (*Task, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task := New(c)
-	task.Now = func() time.Time { return oct19 }
-	t.Setenv(dateEnv, "")
 	t.Setenv("CI_PROJECT_PATH", "")
 	t.Setenv("CI_DEFAULT_BRANCH", "")
-	return task, srv.URL
+	return New(c), srv.URL
 }
 
 func cfg(imageProject string) *config.Config {
@@ -134,7 +99,7 @@ func scope() discovery.Scope {
 	}}
 }
 
-func TestBadgeIsAddedWithTheDateAndLinksToTheProject(t *testing.T) {
+func TestBadgeIsAddedAndLinksToTheProject(t *testing.T) {
 	f := &fakeInstance{imageExists: true}
 	task, base := newTask(t, f)
 
@@ -159,10 +124,10 @@ func TestBadgeIsAddedWithTheDateAndLinksToTheProject(t *testing.T) {
 		t.Fatalf("added = %v, want badges for projects 1 and 3 only", f.added)
 	}
 	got := f.added[0]
-	if got["name"] != "AZDO Migrated Oct. 19, 2026" {
+	if got["name"] != "AZDO Migrated" {
 		t.Errorf("name = %q", got["name"])
 	}
-	if want := base + "/tools/badges/-/raw/master/assets/azdo-migrated-2026-10-19.svg"; got["image_url"] != want {
+	if want := base + "/tools/badges/-/raw/master/assets/azdo-migrated.svg"; got["image_url"] != want {
 		t.Errorf("image_url = %q, want %q", got["image_url"], want)
 	}
 	if want := base + "/acme/app"; got["link_url"] != want {
@@ -175,18 +140,7 @@ func TestBadgeIsAddedWithTheDateAndLinksToTheProject(t *testing.T) {
 	}
 }
 
-func TestAnExistingBadgeKeepsItsOriginalDate(t *testing.T) {
-	f := &fakeInstance{imageExists: true}
-	task, _ := newTask(t, f)
-	diffs, _ := task.Plan(context.Background(), scope(), cfg("tools/badges"))
-	for _, d := range diffs {
-		if d.Target.ID == 2 && (d.Status != diff.StatusUnchanged || !strings.Contains(d.Description, "Sept. 1, 2026")) {
-			t.Errorf("project 2 = %+v, want unchanged and still the Sept. 1 badge", d)
-		}
-	}
-}
-
-func TestMissingImageIsCommittedOnceBeforeTheBadges(t *testing.T) {
+func TestMissingImageFailsInsteadOfAddingBrokenBadges(t *testing.T) {
 	f := &fakeInstance{imageExists: false}
 	task, _ := newTask(t, f)
 
@@ -197,8 +151,8 @@ func TestMissingImageIsCommittedOnceBeforeTheBadges(t *testing.T) {
 	for _, d := range diffs {
 		switch d.Target.ID {
 		case 1, 3:
-			if d.Status != diff.StatusDrifted || !strings.Contains(d.Description, "image is missing and will be committed to tools/badges (master) first") {
-				t.Errorf("project %d plan = %+v", d.Target.ID, d)
+			if d.Status != diff.StatusFailed || !strings.Contains(d.Description, "assets/azdo-migrated.svg not found in tools/badges (master)") {
+				t.Errorf("project %d = %+v, want a failure naming the missing image", d.Target.ID, d)
 			}
 		case 2:
 			if d.Status != diff.StatusUnchanged {
@@ -206,76 +160,25 @@ func TestMissingImageIsCommittedOnceBeforeTheBadges(t *testing.T) {
 			}
 		}
 	}
-	if len(f.files) != 0 {
-		t.Fatal("planning must not write anything")
-	}
-
 	if _, err := task.Apply(context.Background(), diffs, cfg("tools/badges")); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.files) != 1 {
-		t.Fatalf("image committed %d times, want once for the whole run", len(f.files))
-	}
-	file := f.files[0]
-	if file["branch"] != "master" || !strings.Contains(file["content"].(string), "Oct. 19, 2026") || !strings.Contains(file["commit_message"].(string), "[skip ci]") {
-		t.Errorf("commit = %v", file)
-	}
-	if got := strings.Join(f.order, ","); got != "file,badge,badge" {
-		t.Errorf("order = %s, want the image first, then the two badges", got)
-	}
-}
-
-func TestRefusedImageCommitAddsNoBadges(t *testing.T) {
-	f := &fakeInstance{imageExists: false, denyCommit: true}
-	task, _ := newTask(t, f)
-	diffs, _ := task.Plan(context.Background(), scope(), cfg("tools/badges"))
-	results, err := task.Apply(context.Background(), diffs, cfg("tools/badges"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	if len(f.added) != 0 {
-		t.Errorf("no badge may point at a missing image: %v", f.added)
-	}
-	failed := 0
-	for _, r := range results {
-		if r.Status == diff.StatusFailed && strings.Contains(r.Error, "image_ref to an unprotected branch") {
-			failed++
-		}
-	}
-	if failed != 2 {
-		t.Errorf("results = %+v, want projects 1 and 3 to fail with the push hint", results)
+		t.Errorf("no badge may be added without the image: %v", f.added)
 	}
 }
 
-func TestImageAddedByAParallelRunIsNotAnError(t *testing.T) {
-	f := &fakeInstance{imageExists: false, commitRace: true}
-	task, _ := newTask(t, f)
-	diffs, _ := task.Plan(context.Background(), scope(), cfg("tools/badges"))
-	results, err := task.Apply(context.Background(), diffs, cfg("tools/badges"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range results {
-		if r.Status == diff.StatusFailed {
-			t.Errorf("unexpected failure: %+v", r)
-		}
-	}
-	if len(f.added) != 2 {
-		t.Errorf("added = %v, want both badges", f.added)
-	}
-}
-
-func TestImageProjectDefaultsToThePipelinesOwnProject(t *testing.T) {
+func TestImageProjectAndBranchDefaultToThePipelinesOwn(t *testing.T) {
 	f := &fakeInstance{imageExists: true}
 	task, base := newTask(t, f)
 	t.Setenv("CI_PROJECT_PATH", "tools/post-migration")
 	t.Setenv("CI_DEFAULT_BRANCH", "main")
 
-	diffs, err := task.Plan(context.Background(), scope(), cfg("")) // nothing configured
+	diffs, err := task.Plan(context.Background(), scope(), cfg(""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := base + "/tools/post-migration/-/raw/main/assets/azdo-migrated-2026-10-19.svg"
+	want := base + "/tools/post-migration/-/raw/main/assets/azdo-migrated.svg"
 	for _, d := range diffs {
 		if d.Status == diff.StatusDrifted && d.Detail["image_url"] != want {
 			t.Errorf("image_url = %v, want %s", d.Detail["image_url"], want)
@@ -283,11 +186,10 @@ func TestImageProjectDefaultsToThePipelinesOwnProject(t *testing.T) {
 	}
 }
 
-func TestConfiguredImageProjectAndRefWinOverThePipelinesOwn(t *testing.T) {
+func TestConfiguredImageProjectAndRefWin(t *testing.T) {
 	f := &fakeInstance{imageExists: true}
 	task, base := newTask(t, f)
 	t.Setenv("CI_PROJECT_PATH", "tools/post-migration")
-	t.Setenv("CI_DEFAULT_BRANCH", "main")
 
 	c := cfg("assets-group/badges")
 	c.ProjectMigrationBadge.ImageRef = "stable"
@@ -295,7 +197,7 @@ func TestConfiguredImageProjectAndRefWinOverThePipelinesOwn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := base + "/assets-group/badges/-/raw/stable/assets/azdo-migrated-2026-10-19.svg"
+	want := base + "/assets-group/badges/-/raw/stable/assets/azdo-migrated.svg"
 	for _, d := range diffs {
 		if d.Status == diff.StatusDrifted && d.Detail["image_url"] != want {
 			t.Errorf("image_url = %v, want %s", d.Detail["image_url"], want)
@@ -305,65 +207,8 @@ func TestConfiguredImageProjectAndRefWinOverThePipelinesOwn(t *testing.T) {
 
 func TestNoImageProjectAnywhereIsAnError(t *testing.T) {
 	task, _ := newTask(t, &fakeInstance{})
-	t.Setenv("CI_PROJECT_PATH", "")
 	if _, err := task.Plan(context.Background(), scope(), cfg("")); err == nil || !strings.Contains(err.Error(), "image_project") {
 		t.Errorf("err = %v, want a message about image_project", err)
-	}
-}
-
-func TestMigrationDateCanBePinned(t *testing.T) {
-	f := &fakeInstance{imageExists: true}
-	task, _ := newTask(t, f)
-
-	t.Setenv(dateEnv, "2026-10-19") // the same day, set explicitly while the clock says otherwise
-	task.Now = func() time.Time { return time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC) }
-	diffs, err := task.Plan(context.Background(), scope(), cfg("tools/badges"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, d := range diffs {
-		if d.Status == diff.StatusDrifted && d.Detail["name"] != "AZDO Migrated Oct. 19, 2026" {
-			t.Errorf("name = %v", d.Detail["name"])
-		}
-	}
-
-	t.Setenv(dateEnv, "19/10/2026")
-	if _, err := task.Plan(context.Background(), scope(), cfg("tools/badges")); err == nil {
-		t.Error("a malformed date must be an error")
-	}
-}
-
-func TestFormatDate(t *testing.T) {
-	for in, want := range map[string]string{
-		"2026-10-19": "Oct. 19, 2026",
-		"2026-01-05": "Jan. 5, 2026",
-		"2026-03-02": "March 2, 2026",
-		"2026-05-31": "May 31, 2026",
-		"2026-09-09": "Sept. 9, 2026",
-		"2026-12-25": "Dec. 25, 2026",
-	} {
-		d, _ := time.Parse("2006-01-02", in)
-		if got := FormatDate(d); got != want {
-			t.Errorf("FormatDate(%s) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-func TestBadgeImageIsAnSVGWithTheLabelAndDate(t *testing.T) {
-	dir := t.TempDir()
-	path, err := WriteImage(filepath.Join(dir, "assets"), oct19)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if filepath.Base(path) != "azdo-migrated-2026-10-19.svg" {
-		t.Errorf("file = %s", path)
-	}
-	data, _ := os.ReadFile(path)
-	svg := string(data)
-	for _, want := range []string{"<svg ", "AZDO Migrated", "Oct. 19, 2026", `aria-label="AZDO Migrated Oct. 19, 2026"`} {
-		if !strings.Contains(svg, want) {
-			t.Errorf("svg missing %q:\n%s", want, svg)
-		}
 	}
 }
 
@@ -372,16 +217,17 @@ func TestRunningTwiceDoesNotAddASecondBadge(t *testing.T) {
 	task, _ := newTask(t, f)
 
 	// One plan, applied twice (a second pipeline applying an older plan).
-	diffs, err := task.Plan(context.Background(), discovery.Scope{Projects: []discovery.Project{{ID: 1, PathWithNamespace: "acme/app"}}}, cfg("tools/badges"))
+	one := discovery.Scope{Projects: []discovery.Project{{ID: 1, PathWithNamespace: "acme/app"}}}
+	diffs, err := task.Plan(context.Background(), one, cfg("tools/badges"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.mu.Lock()
-	f.badgesAfterFirstAdd = true
-	f.mu.Unlock()
 	if _, err := task.Apply(context.Background(), diffs, cfg("tools/badges")); err != nil {
 		t.Fatal(err)
 	}
+	f.mu.Lock()
+	f.afterAdd = true
+	f.mu.Unlock()
 	results, err := task.Apply(context.Background(), diffs, cfg("tools/badges"))
 	if err != nil {
 		t.Fatal(err)
@@ -395,41 +241,24 @@ func TestRunningTwiceDoesNotAddASecondBadge(t *testing.T) {
 }
 
 func TestBadgeNameMatchIgnoresCaseAndSpaces(t *testing.T) {
-	badges := []*gitlab.ProjectBadge{{Name: "  azdo migrated Jan. 2, 2026", Kind: "project"}}
+	badges := []*gitlab.ProjectBadge{{Name: "  azdo migrated", Kind: "project"}}
 	if ownBadge(badges, "AZDO Migrated") == nil {
 		t.Error("a differently cased or padded name still counts as the migration badge")
 	}
 }
 
-func TestAConfiguredBranchThatDoesNotExistIsCreatedFromTheDefaultBranch(t *testing.T) {
-	f := &fakeInstance{branches: map[string]bool{"master": true}}
-	task, _ := newTask(t, f)
-	c := cfg("tools/badges")
-	c.ProjectMigrationBadge.ImageRef = "badge-images"
-
-	diffs, err := task.Plan(context.Background(), scope(), c)
+func TestBadgeImageIsAnSVGWithTheLabel(t *testing.T) {
+	path, err := WriteImage(filepath.Join(t.TempDir(), "assets"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := task.Apply(context.Background(), diffs, c); err != nil {
-		t.Fatal(err)
+	if filepath.Base(path) != "azdo-migrated.svg" {
+		t.Errorf("file = %s", path)
 	}
-	if len(f.files) != 1 || f.files[0]["branch"] != "badge-images" || f.files[0]["start_branch"] != "master" {
-		t.Errorf("commit = %v, want branch badge-images started from master", f.files)
-	}
-	if len(f.added) != 2 || !strings.Contains(f.added[0]["image_url"], "/-/raw/badge-images/assets/") {
-		t.Errorf("badges = %v, want them to point at the badge-images branch", f.added)
-	}
-}
-
-func TestAnExistingBranchIsCommittedToDirectly(t *testing.T) {
-	f := &fakeInstance{branches: map[string]bool{"master": true}}
-	task, _ := newTask(t, f)
-	diffs, _ := task.Plan(context.Background(), scope(), cfg("tools/badges"))
-	if _, err := task.Apply(context.Background(), diffs, cfg("tools/badges")); err != nil {
-		t.Fatal(err)
-	}
-	if _, set := f.files[0]["start_branch"]; set {
-		t.Errorf("an existing branch must not get a start_branch: %v", f.files[0])
+	data, _ := os.ReadFile(path)
+	for _, want := range []string{"<svg ", `aria-label="AZDO Migrated"`, ">AZDO Migrated<"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("svg missing %q:\n%s", want, data)
+		}
 	}
 }

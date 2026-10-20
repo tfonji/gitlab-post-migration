@@ -97,7 +97,7 @@ Commands:
                framework from each top-level group, ahead of plan/apply
   plan         diff live state against desired config for one task
   apply        reconcile the diffs from a prior plan for one task
-  badge-image  write the "AZDO Migrated <date>" badge SVG for a date
+  badge-image  write the "AZDO Migrated" badge SVG
   report       merge task result files into one pipeline-run report
   list-tasks   print every registered task name`)
 }
@@ -111,22 +111,14 @@ func registerTasks(c *gitlabclient.Client) {
 	projectmigrationbadge.Register(c)
 }
 
-// runBadgeImage writes the badge SVG for a date.
+// runBadgeImage writes the badge SVG into a directory.
 func runBadgeImage(args []string) error {
 	fs := flag.NewFlagSet("badge-image", flag.ExitOnError)
-	dateFlag := fs.String("date", "", "migration date, YYYY-MM-DD (default today, UTC)")
 	dir := fs.String("out", "assets", "directory to write the SVG into")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	d := time.Now().UTC()
-	if *dateFlag != "" {
-		var err error
-		if d, err = time.Parse("2006-01-02", *dateFlag); err != nil {
-			return fmt.Errorf("--date %q is not a YYYY-MM-DD date", *dateFlag)
-		}
-	}
-	path, err := projectmigrationbadge.WriteImage(*dir, d)
+	path, err := projectmigrationbadge.WriteImage(*dir)
 	if err != nil {
 		return err
 	}

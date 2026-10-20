@@ -67,12 +67,12 @@ func (c *Config) ProtectedEnvironmentList() []ProtectedEnvironment {
 	return []ProtectedEnvironment{c.ProtectedEnvironment}
 }
 
-// ProjectMigrationBadge configures the "AZDO Migrated <date>" badge and the repository holding its SVGs.
+// ProjectMigrationBadge configures the "AZDO Migrated" badge; the optional fields say where its SVG is read from.
 type ProjectMigrationBadge struct {
-	Name         string `yaml:"name"`          // "AZDO Migrated"; the date is appended
-	ImageProject string `yaml:"image_project"` // "group/project" holding the SVGs; default: the pipeline's own project
-	ImageRef     string `yaml:"image_ref"`     // default: the project's default branch, else "master"
-	ImageDir     string `yaml:"image_dir"`     // "assets"
+	Name         string `yaml:"name"`          // "AZDO Migrated"
+	ImageProject string `yaml:"image_project"` // default: the pipeline's own project
+	ImageRef     string `yaml:"image_ref"`     // default: the default branch, else "master"
+	ImageDir     string `yaml:"image_dir"`     // default: "assets"
 }
 
 func Load(path string) (*Config, error) {
