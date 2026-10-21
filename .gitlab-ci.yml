@@ -1,6 +1,7 @@
 stages:
   - build
   - discover
+  - inventory
   - cleanup
   - plan
   - apply
@@ -28,10 +29,23 @@ discover:
     paths: [projects.json]
     expire_in: 1 day
 
+# Records the project and group IDs this run covers, before cleanup changes anything.
+inventory:
+  stage: inventory
+  needs: ["discover"]
+  script:
+    - ./bin/post-migration-linux-amd64 inventory --scope=projects.json --json-out=inventory.json --text-out=inventory.txt
+  artifacts:
+    when: always
+    paths: [inventory.json, inventory.txt]
+    expire_in: 1 month
+
 # Runs before every plan: unlinks the policy project and removes the compliance framework, which would break apply.
 cleanup:
   stage: cleanup
-  needs: ["discover"]
+  needs:
+    - "discover"
+    - { job: "inventory", artifacts: false }
   script:
     - ./bin/post-migration-linux-amd64 cleanup --scope=projects.json --config="$CONFIG_FILE" --out=cleanup-result.json
   artifacts:

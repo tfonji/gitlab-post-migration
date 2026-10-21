@@ -93,6 +93,18 @@ export GITLAB_TOKEN=...
 ./bin/gitlab-post-migration report --in="result-*.json"
 ```
 
+## Inventory
+
+The `inventory` job runs between `discover` and `cleanup`. It reads `projects.json`
+(no API calls) and prints, then saves as `inventory.txt` and `inventory.json`:
+
+- `PROJECT_IDS=` and `GROUP_ID=`: comma-separated ID lists, sorted numerically, ready to
+  paste into the pipeline variables of a later run.
+- A name -> ID mapping for projects (full path) and for the top-level groups.
+
+It lists what the run will act on, so archived projects are not included. `cleanup`
+waits for it, so a failure here stops the pipeline before anything is changed.
+
 ## Migration badge
 
 `group-migration-badge` adds an "AZDO Migrated" badge to each top-level group. GitLab

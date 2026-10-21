@@ -21,6 +21,7 @@ import (
 	"gitlab-post-migration/internal/diff"
 	"gitlab-post-migration/internal/discovery"
 	"gitlab-post-migration/internal/gitlabclient"
+	"gitlab-post-migration/internal/inventory"
 	"gitlab-post-migration/internal/membership"
 	"gitlab-post-migration/internal/report"
 	"gitlab-post-migration/internal/task"
@@ -46,6 +47,8 @@ func main() {
 	switch os.Args[1] {
 	case "discover":
 		err = runDiscover(os.Args[2:])
+	case "inventory":
+		err = runInventory(os.Args[2:])
 	case "cleanup":
 		err = runCleanup(os.Args[2:])
 	case "plan":
@@ -93,6 +96,7 @@ func usage() {
 
 Commands:
   discover     resolve a group/project IDs into a scope (projects.json)
+  inventory    list the scope's project and group IDs and name-to-ID mappings
   cleanup      unlink the security policy project and remove the compliance
                framework from each top-level group, ahead of plan/apply
   plan         diff live state against desired config for one task
@@ -171,6 +175,28 @@ func runDiscover(args []string) error {
 
 	slog.Info("discovered", "projects", len(scope.Projects), "top_level_groups", len(scope.TopLevelGroups))
 	return writeJSON(*out, scope)
+}
+
+// runInventory prints the scope's IDs and name-to-ID mappings and saves them as JSON and text.
+func runInventory(args []string) error {
+	fs := flag.NewFlagSet("inventory", flag.ExitOnError)
+	scopeFile := fs.String("scope", "projects.json", "scope file produced by discover")
+	jsonOut := fs.String("json-out", "inventory.json", "JSON output file")
+	textOut := fs.String("text-out", "inventory.txt", "text output file")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	scope, err := loadScope(*scopeFile)
+	if err != nil {
+		return err
+	}
+	inv := inventory.Build(scope)
+	text := inv.Text()
+	fmt.Print(text)
+	if err := os.WriteFile(*textOut, []byte(text), 0o644); err != nil {
+		return err
+	}
+	return writeJSON(*jsonOut, inv)
 }
 
 // runCleanup unlinks the policy project and removes the compliance framework per group before plan; any failure fails the job.
