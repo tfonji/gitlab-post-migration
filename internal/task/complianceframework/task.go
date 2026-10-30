@@ -71,6 +71,9 @@ type projectFrameworksResponse struct {
 
 func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Config) ([]diff.Diff, error) {
 	want := cfg.ComplianceFramework
+	if !want.IsEnabled() {
+		return disabledDiffs(scope), nil
+	}
 	if want.Name == "" {
 		return nil, fmt.Errorf("compliance_framework.name is not set in desired-state config")
 	}
@@ -153,6 +156,21 @@ func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Conf
 		})
 	}
 	return diffs, nil
+}
+
+// DisabledReason is shown for every group when the compliance framework is switched off for the run.
+const DisabledReason = "compliance framework disabled for this run (COMPLIANCE_FRAMEWORK_ENABLED=false); nothing created, assigned or removed"
+
+func disabledDiffs(scope discovery.Scope) []diff.Diff {
+	diffs := make([]diff.Diff, 0, len(scope.TopLevelGroups))
+	for _, g := range scope.TopLevelGroups {
+		diffs = append(diffs, diff.Diff{
+			Target:      diff.Target{Kind: diff.TargetGroup, ID: g.ID, Path: g.FullPath},
+			Status:      diff.StatusSkipped,
+			Description: DisabledReason,
+		})
+	}
+	return diffs
 }
 
 func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config) ([]diff.Result, error) {

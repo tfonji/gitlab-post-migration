@@ -5,7 +5,8 @@ mr_policy:
   security_policy_project_path: "dso-security-policy/mr-policy-1-approver-security-policy-project"
 
 compliance_framework:
-  # Created or reconciled at each top-level group, then assigned to its projects.
+  # Created or reconciled at each top-level group, then assigned to its projects; false leaves frameworks alone (overridden per run by COMPLIANCE_FRAMEWORK_ENABLED).
+  enabled: true
   name: "security-compliant"
   color: "#9400d3"
   description: "security compliance framework"
@@ -28,11 +29,15 @@ protected_environments:
     approver_group_id: 23328
     approver_group_access_level: reporter
 
+# branch_name is "master" or "main"; DEFAULT_BRANCH overrides both settings per run.
+# keep_existing: true leaves a group/project already on master or main as is (KEEP_EXISTING_DEFAULT_BRANCH overrides per run).
 group_default_branch:
   branch_name: master
+  keep_existing: false
 
 default_branch_rename:
   branch_name: master
+  keep_existing: false
   # Protection for the new default branch: only Maintainers push or merge, no force-push.
   protect_push_access_level: maintainer
   protect_merge_access_level: maintainer

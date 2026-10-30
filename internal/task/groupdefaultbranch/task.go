@@ -4,6 +4,7 @@ package groupdefaultbranch
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 
@@ -41,6 +42,10 @@ func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Conf
 
 		if grp.DefaultBranch == desired {
 			diffs = append(diffs, diff.Diff{Target: target, Status: diff.StatusUnchanged, Description: fmt.Sprintf("group default branch already %q", desired)})
+			continue
+		}
+		if cfg.GroupDefaultBranch.KeepExisting && slices.Contains(config.AllowedDefaultBranches, grp.DefaultBranch) {
+			diffs = append(diffs, diff.Diff{Target: target, Status: diff.StatusUnchanged, Description: fmt.Sprintf("group default branch %q kept (KEEP_EXISTING_DEFAULT_BRANCH)", grp.DefaultBranch)})
 			continue
 		}
 

@@ -14,6 +14,18 @@ variables:
   PROJECT_IDS:
     description: "Comma-separated explicit project IDs. Combinable with GROUP_ID; duplicates are included once."
     value: ""
+  COMPLIANCE_FRAMEWORK_ENABLED:
+    description: "false = leave compliance frameworks alone this run: not created, assigned or removed (cleanup skips it too). Overrides compliance_framework.enabled."
+    value: "true"
+    options: ["true", "false"]
+  DEFAULT_BRANCH:
+    description: "Default branch every project (and the group's setting for new projects) is brought to. Overrides the branch names in the config."
+    value: "master"
+    options: ["master", "main"]
+  KEEP_EXISTING_DEFAULT_BRANCH:
+    description: "true = a project (or group) already on master or main keeps it, whichever DEFAULT_BRANCH says; the kept branch is still protected. DEFAULT_BRANCH then only applies to other branch names."
+    value: "false"
+    options: ["false", "true"]
   CONFIG_FILE:
     value: "configs/desired-state.yaml"
 

@@ -96,8 +96,9 @@ type destroyFrameworkResponse struct {
 
 // Run cleans every top-level group, one result per check; one group failing does not stop the others.
 func Run(ctx context.Context, c GraphQLClient, scope discovery.Scope, cfg *config.Config) ([]diff.Result, error) {
+	frameworkEnabled := cfg.ComplianceFramework.IsEnabled()
 	frameworkName := cfg.ComplianceFramework.Name
-	if frameworkName == "" {
+	if frameworkEnabled && frameworkName == "" {
 		return nil, fmt.Errorf("compliance_framework.name is not set in desired-state config")
 	}
 
@@ -105,6 +106,10 @@ func Run(ctx context.Context, c GraphQLClient, scope discovery.Scope, cfg *confi
 	for _, g := range scope.TopLevelGroups {
 		target := diff.Target{Kind: diff.TargetGroup, ID: g.ID, Path: g.FullPath}
 		results = append(results, unlinkPolicyProject(ctx, c, target))
+		if !frameworkEnabled {
+			results = append(results, diff.Result{Target: target, Status: diff.StatusSkipped, Description: "compliance framework disabled for this run (COMPLIANCE_FRAMEWORK_ENABLED=false); left in place"})
+			continue
+		}
 		results = append(results, removeFramework(ctx, c, target, frameworkName))
 	}
 	return results, nil

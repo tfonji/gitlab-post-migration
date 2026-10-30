@@ -1,10 +1,11 @@
-// Package defaultbranchrename makes master the default branch: created if missing, used as is if present, protected.
+// Package defaultbranchrename makes the configured branch (master or main) the default: created if missing, used as is if present, protected.
 package defaultbranchrename
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go"
@@ -36,7 +37,7 @@ func (t *Task) Name() string { return Name }
 func (t *Task) RequiresGroupMembership() bool { return true }
 
 func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Config) ([]diff.Diff, error) {
-	desired := desiredBranch(cfg)
+	wanted := desiredBranch(cfg)
 	pushLevel, err := accessLevelFromString(protectPushAccessLevel(cfg))
 	if err != nil {
 		return nil, err
@@ -54,6 +55,10 @@ func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Conf
 		if err != nil {
 			diffs = append(diffs, diff.Diff{Target: target, Status: diff.StatusFailed, Description: err.Error()})
 			continue
+		}
+		desired, kept := wanted, false
+		if cfg.DefaultBranchRename.KeepExisting && proj.DefaultBranch != wanted && slices.Contains(config.AllowedDefaultBranches, proj.DefaultBranch) {
+			desired, kept = proj.DefaultBranch, true
 		}
 		needsSwitch := proj.DefaultBranch != desired
 
@@ -99,11 +104,18 @@ func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Conf
 		}
 
 		if !needsSwitch && protectionAction == "" {
-			diffs = append(diffs, diff.Diff{Target: target, Status: diff.StatusUnchanged, Description: fmt.Sprintf("default branch already %q and protected as desired", desired)})
+			desc := fmt.Sprintf("default branch already %q and protected as desired", desired)
+			if kept {
+				desc = fmt.Sprintf("default branch %q kept (KEEP_EXISTING_DEFAULT_BRANCH) and protected as desired", desired)
+			}
+			diffs = append(diffs, diff.Diff{Target: target, Status: diff.StatusUnchanged, Description: desc})
 			continue
 		}
 
 		var descParts []string
+		if kept {
+			descParts = append(descParts, fmt.Sprintf("default branch %q kept (KEEP_EXISTING_DEFAULT_BRANCH)", desired))
+		}
 		if needsSwitch {
 			switch branchAction {
 			case "create":
@@ -138,7 +150,6 @@ func (t *Task) Plan(ctx context.Context, scope discovery.Scope, cfg *config.Conf
 }
 
 func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config) ([]diff.Result, error) {
-	desired := desiredBranch(cfg)
 	pushLevel, err := accessLevelFromString(protectPushAccessLevel(cfg))
 	if err != nil {
 		return nil, err
@@ -155,6 +166,10 @@ func (t *Task) Apply(ctx context.Context, diffs []diff.Diff, cfg *config.Config)
 			continue
 		}
 
+		desired, _ := d.Detail["desired_default_branch"].(string)
+		if desired == "" {
+			desired = desiredBranch(cfg)
+		}
 		needsSwitch, _ := d.Detail["needs_default_switch"].(bool)
 		branchAction, _ := d.Detail["branch_action"].(string)
 		protectionAction, _ := d.Detail["protection_action"].(string)

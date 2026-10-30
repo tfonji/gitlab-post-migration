@@ -189,3 +189,29 @@ func TestRunRequiresFrameworkName(t *testing.T) {
 		t.Fatal("expected an error when compliance_framework.name is unset")
 	}
 }
+
+func TestRunDisabledFrameworkIsLeftInPlaceButPolicyIsStillUnlinked(t *testing.T) {
+	f := &fakeGraphQL{groups: map[string]*fakeGroup{
+		"acme": {
+			policyProject: "sec/policies",
+			frameworks:    []fakeFramework{{ID: "gid://f/1", Name: "security-compliant", IsDefault: true}},
+		},
+	}}
+	off := false
+	cfg := &config.Config{ComplianceFramework: config.ComplianceFramework{Enabled: &off}}
+	scope := discovery.Scope{TopLevelGroups: []discovery.Group{{ID: 1, FullPath: "acme"}}}
+	results, err := Run(context.Background(), f, scope, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := strings.Join(f.calls, ", "); got != "unassign acme" {
+		t.Errorf("only the policy unlink should run, got %q", got)
+	}
+	if len(results) != 2 || results[0].Status != diff.StatusApplied || results[1].Status != diff.StatusSkipped {
+		t.Fatalf("results = %+v", results)
+	}
+	if len(f.groups["acme"].frameworks) != 1 {
+		t.Error("a disabled framework must not be removed")
+	}
+}

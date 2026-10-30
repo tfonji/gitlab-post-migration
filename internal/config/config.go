@@ -4,6 +4,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"slices"
+	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -28,11 +31,15 @@ type MRPolicy struct {
 
 // ComplianceFramework is created or reconciled at each top-level group and assigned to its projects.
 type ComplianceFramework struct {
+	Enabled                       *bool  `yaml:"enabled"` // default true; false leaves every framework untouched
 	Name                          string `yaml:"name"`
 	Color                         string `yaml:"color"`
 	Description                   string `yaml:"description"`
 	PipelineConfigurationFullPath string `yaml:"pipeline_configuration_full_path"` // "<file>.yml@<group>/<project>"
 }
+
+// IsEnabled reports whether the compliance framework is managed this run; unset means yes.
+func (c ComplianceFramework) IsEnabled() bool { return c.Enabled == nil || *c.Enabled }
 
 // ProtectedEnvironment is one group-level protected environment (a deployment tier) with its deploy and approval settings.
 type ProtectedEnvironment struct {
@@ -49,7 +56,8 @@ type ProtectedEnvironment struct {
 
 // GroupDefaultBranch is the default branch name for new projects in the group.
 type GroupDefaultBranch struct {
-	BranchName string `yaml:"branch_name"` // "master"
+	BranchName   string `yaml:"branch_name"`   // "master"
+	KeepExisting bool   `yaml:"keep_existing"` // leave a group already on master or main as is
 }
 
 // DefaultBranchRename is the default branch for existing projects: created if missing, protected, then made the default.
@@ -57,6 +65,9 @@ type DefaultBranchRename struct {
 	BranchName              string `yaml:"branch_name"`                // "master"
 	ProtectPushAccessLevel  string `yaml:"protect_push_access_level"`  // "maintainer"
 	ProtectMergeAccessLevel string `yaml:"protect_merge_access_level"` // "maintainer"
+
+	// KeepExisting leaves a project already on master or main on it (still protected) instead of switching it to BranchName.
+	KeepExisting bool `yaml:"keep_existing"`
 }
 
 // ProtectedEnvironmentList returns the list, else the legacy single key, else production defaults.
@@ -75,12 +86,53 @@ type GroupMigrationBadge struct {
 	ImageDir     string `yaml:"image_dir"`     // default: "assets"
 }
 
+// Per-run overrides, set as pipeline variables.
+const (
+	EnvComplianceFrameworkEnabled = "COMPLIANCE_FRAMEWORK_ENABLED"
+	EnvDefaultBranch              = "DEFAULT_BRANCH"
+	EnvKeepExistingDefaultBranch  = "KEEP_EXISTING_DEFAULT_BRANCH"
+)
+
+// AllowedDefaultBranches are the names DEFAULT_BRANCH accepts.
+var AllowedDefaultBranches = []string{"master", "main"}
+
+// Load reads the YAML, then applies the per-run overrides from the environment.
 func Load(path string) (*Config, error) {
 	var cfg Config
 	if err := loadYAML(path, &cfg); err != nil {
 		return nil, fmt.Errorf("loading config %s: %w", path, err)
 	}
+	if err := cfg.ApplyOverrides(os.Getenv); err != nil {
+		return nil, fmt.Errorf("loading config %s: %w", path, err)
+	}
 	return &cfg, nil
+}
+
+// ApplyOverrides lets the per-run variables win over the file; DEFAULT_BRANCH and KEEP_EXISTING_DEFAULT_BRANCH each set both the group and the project setting.
+func (c *Config) ApplyOverrides(getenv func(string) string) error {
+	if v := strings.TrimSpace(getenv(EnvComplianceFrameworkEnabled)); v != "" {
+		enabled, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("%s must be true or false, got %q", EnvComplianceFrameworkEnabled, v)
+		}
+		c.ComplianceFramework.Enabled = &enabled
+	}
+	if v := strings.TrimSpace(getenv(EnvDefaultBranch)); v != "" {
+		if !slices.Contains(AllowedDefaultBranches, v) {
+			return fmt.Errorf("%s must be one of %s, got %q", EnvDefaultBranch, strings.Join(AllowedDefaultBranches, " or "), v)
+		}
+		c.GroupDefaultBranch.BranchName = v
+		c.DefaultBranchRename.BranchName = v
+	}
+	if v := strings.TrimSpace(getenv(EnvKeepExistingDefaultBranch)); v != "" {
+		keep, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("%s must be true or false, got %q", EnvKeepExistingDefaultBranch, v)
+		}
+		c.GroupDefaultBranch.KeepExisting = keep
+		c.DefaultBranchRename.KeepExisting = keep
+	}
+	return nil
 }
 
 func loadYAML(path string, out any) error {

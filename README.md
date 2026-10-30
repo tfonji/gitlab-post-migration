@@ -23,10 +23,10 @@ One task per pipeline job, each independently plan-then-apply:
 | Task | Scope | What it does |
 |---|---|---|
 | `group-mr-approval-policy` | top-level group | links a security policy project (GitLab's "merge request approval policy" feature) to the group |
-| `group-compliance-framework` | top-level group + its projects | creates/reconciles a compliance framework (name/color/description/pipeline config) at the group, then assigns it to every project in the group |
+| `group-compliance-framework` | top-level group + its projects | creates/reconciles a compliance framework (name/color/description/pipeline config) at the group, then assigns it to every project in the group; skipped entirely when `COMPLIANCE_FRAMEWORK_ENABLED=false` |
 | `group-protected-environment` | top-level group | protects the `production`, `staging` and `other` environment tiers (`protected_environments` in the desired state): production and staging deploy + approval restricted to Maintainer; `other` deployable by Developers and Maintainers and approved by the TechLib Approvers group (id 23328), which is first shared into the top-level group as Reporter if it isn't already (an existing share below Reporter is removed and re-shared as Reporter) |
-| `group-default-branch-setting` | top-level group | sets the default branch name for *new* projects created in the group going forward |
-| `project-default-branch-rename` | project | if the project's default branch isn't `master`, creates `master` from the current default (an existing `master` is used as it is, even if it is behind or has diverged), protects it (push/merge restricted to Maintainer), and switches the project's default branch pointer to it -- also fixes protection alone if `master` is already default but unprotected/misconfigured |
+| `group-default-branch-setting` | top-level group | sets the default branch name (`master` or `main`, see `DEFAULT_BRANCH`) for *new* projects created in the group going forward |
+| `project-default-branch-rename` | project | if the project's default branch isn't the chosen one (`master` or `main`, see `DEFAULT_BRANCH`), creates it from the current default (an existing one is used as it is, even if it is behind or has diverged), protects it (push/merge restricted to Maintainer), and switches the project's default branch pointer to it -- also fixes protection alone if it is already the default but unprotected/misconfigured |
 | `group-migration-badge` | top-level group | adds an "AZDO Migrated" badge to the group, which its projects and subgroups show, and removes the exact project-level copy; a group that already has one is left alone |
 
 ## Pipeline flow
@@ -63,6 +63,19 @@ build → discover → plan (parallel, one job per task) → apply (manual gate,
 - [configs/desired-state.yaml](configs/desired-state.yaml) -- the settings
   baseline, identical across every top-level group in a run. Versioned,
   reviewed like code.
+- Per-run pipeline variables override the file (set them in the "Run pipeline" form; also read when running the binary locally):
+  - `COMPLIANCE_FRAMEWORK_ENABLED` (`true`/`false`, `compliance_framework.enabled`) -- `false` leaves
+    compliance frameworks alone: the task reports every group as skipped and `cleanup` does not remove
+    the framework (it still unlinks the security policy project).
+  - `DEFAULT_BRANCH` (`master`/`main`) -- the one branch name every project is brought to
+    (`default_branch_rename.branch_name`) and the group setting for new projects
+    (`group_default_branch.branch_name`). A project that already has the other branch keeps it,
+    and the existing "use an existing branch as it is" rule applies to the chosen one.
+  - `KEEP_EXISTING_DEFAULT_BRANCH` (`false`/`true`, `keep_existing` on both default-branch sections) --
+    `true` leaves a project already on `master` or `main` on it, whichever `DEFAULT_BRANCH` says
+    (it is still protected as configured), and does the same for the group setting. `DEFAULT_BRANCH`
+    then only applies to projects on any other branch name.
+  - Plan and apply must run with the same values, so set them once for the pipeline.
 - `GITLAB_TOKEN` CI/CD variable (masked/protected) -- needs `api` scope on
   the target group(s).
 - Temporary group membership: GitLab refuses the protected branches API
