@@ -32,7 +32,7 @@ One task per pipeline job, each independently plan-then-apply:
 ## Pipeline flow
 
 ```
-build → discover → plan (parallel, one job per task) → apply (manual gate, one job per task) → report
+build → discover → plan (parallel, one job per task) → apply (automatic, one job per task) → report
 ```
 
 - `discover` resolves `GROUP_ID` (comma-separated, e.g. `123,456`) and/or
@@ -45,15 +45,13 @@ build → discover → plan (parallel, one job per task) → apply (manual gate,
   changed yet. The job log itself prints a table -- one row per target with
   its kind/path/status/description -- plus a stats summary line, so you can
   review exactly what a task found without opening any artifact.
-- Every `apply:*` job is `when: manual` and only acts on the diffs from its
-  matching `plan:*` job's artifact -- what you approve in the GitLab UI is
-  exactly what runs. Its job log prints the same kind of table, showing what
-  was actually done to each target.
+- Starting the pipeline runs everything: each `apply:*` job starts as soon as
+  its `plan:*` job succeeds and only acts on the diffs from that job's
+  artifact, so it applies exactly what was planned. Its job log prints the same
+  kind of table, showing what was actually done to each target.
 - `apply:group-mr-approval-policy` deliberately runs last: it `needs` all
-  four other apply jobs, so it isn't triggerable until they've all
-  succeeded. If any of them isn't run in a given pipeline, this job is
-  auto-skipped rather than becoming available on its own (GitLab treats
-  `needs` on a manual job as auto-skip-if-not-triggered since 13.12).
+  four other apply jobs, so it starts only after they have all succeeded. If
+  any of them fails, this job is skipped.
 - `report` merges every `result-*.json` (or `plan-*.json` if nothing was
   applied) into one `report.json` + `report.html` pipeline artifact, with an
   overall stats summary and a per-task breakdown.

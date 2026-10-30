@@ -78,7 +78,6 @@ cleanup:
 
 .apply: &apply
   stage: apply
-  when: manual
   script:
     - ./bin/post-migration-linux-amd64 apply --task="$TASK" --plan="plan-$TASK.json" --config="$CONFIG_FILE" --out="result-$TASK.json"
   artifacts:
@@ -89,7 +88,6 @@ plan:group-mr-approval-policy:
   <<: *plan
   variables: { TASK: "group-mr-approval-policy" }
 
-# Runs last: `needs` on a manual job auto-skips it unless all four applies were triggered and succeeded.
 apply:group-mr-approval-policy:
   <<: *apply
   needs:
